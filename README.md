@@ -28,7 +28,7 @@ Install the required Python packages:
 ```
 pip install -r requirements.txt
 ```
-Create a new bot in Telegram and obtain the bot token. For instructions on how to do this, see Telegram's documentation.
+Create a new bot in Telegram and obtain the bot token. For instructions on how to do this, see Telegram's bot father[https://t.me/botfather].
 
 Create a new .env file in the project directory and add the following line:
 
