@@ -1,18 +1,7 @@
 # vxtwitter-invidious-telegram-bot
 
 
-##Clone the repository from Github:
-
-```
-git clone https://github.com/mewmix/vxtwitter-invidious-telegram-bot.git
-```
-Navigate to the cloned directory:
-```
-cd vxtwitter-invidious-telegram-bot
-```
-Install the required Python packages:
-
-Clone the repository from Github:
+## Install :
 
 ```
 git clone https://github.com/mewmix/vxtwitter-invidious-telegram-bot.git
@@ -42,7 +31,7 @@ Run the bot:
 ```
 python bot.py
 ```
-That's it! You should now be able to use the bot to convert YouTube and Twitter links to alternative URLs in your Telegram conversations. If you encounter any issues, please refer to the project's Github page for further information.
+That's it! You should now be able to use the bot to convert YouTube and Twitter links to alternative URLs in your Telegram conversations. If you encounter any issues, please refer to the project's Github page for further information or contact me at [https://t.me/s/ze_rg].
 
 ### Permissions
 Talk to [https://t.me/botfather] - make sure Group Privacy is Off & The Bot Requests Delete Posts in Admin Rights
