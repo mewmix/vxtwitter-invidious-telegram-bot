@@ -43,3 +43,11 @@ Run the bot:
 python bot.py
 ```
 That's it! You should now be able to use the bot to convert YouTube and Twitter links to alternative URLs in your Telegram conversations. If you encounter any issues, please refer to the project's Github page for further information.
+
+### Permissions
+
+<img width="679" alt="Screen Shot 2023-03-14 at 11 11 30 PM" src="https://user-images.githubusercontent.com/42463809/225224114-9de01c15-6daa-494b-9765-b6cea7afe446.png">
+<img width="425" alt="Screen Shot 2023-03-14 at 11 11 11 PM" src="https://user-images.githubusercontent.com/42463809/225224118-eaad0628-b9e1-49b9-9741-113bbdbdafcd.png">
+<img width="340" alt="Screen Shot 2023-03-14 at 11 11 03 PM" src="https://user-images.githubusercontent.com/42463809/225224120-3334e30e-a0c7-406c-bef6-7186c2731bc4.png">
+<img width="282" alt="Screen Shot 2023-03-14 at 11 10 56 PM" src="https://user-images.githubusercontent.com/42463809/225224122-d087f9e0-e8f8-4ebe-9eb3-7af11b54a5f0.png">
+
