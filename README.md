@@ -2,6 +2,12 @@
 # vxtwitter-invidious-telegram-bot
 
 
+# Example 
+
+![Example](https://user-images.githubusercontent.com/42463809/225227770-dade7191-ad68-4fb3-ad52-99d787bb8cf3.gif)
+
+
+
 ## Install :
 
 ```
