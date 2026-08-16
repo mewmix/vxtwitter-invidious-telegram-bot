@@ -1,56 +1,104 @@
+# FxTwitter + Invidious Telegram Bot
 
-# vxtwitter-invidious-telegram-bot
+A small Telegram bot deployed as a Cloudflare Worker.
 
+- `twitter.com/<user>/status/<id>` -> `fxtwitter.com/<user>/status/<id>`
+- `x.com/<user>/status/<id>` -> `fxtwitter.com/<user>/status/<id>`
+- YouTube links -> Invidious when the bot is mentioned
+- Deletes the original Telegram message after a successful replacement
+- Uses Telegram webhooks instead of a continuously running polling process
 
-# Example 
+## Telegram setup
 
-![Example](https://user-images.githubusercontent.com/42463809/225227770-dade7191-ad68-4fb3-ad52-99d787bb8cf3.gif)
+Create a bot with [BotFather](https://t.me/BotFather). For group use:
 
+1. Disable Group Privacy for the bot.
+2. Add the bot to the group.
+3. Give it permission to delete messages if you want original links removed.
 
+## Deploy to Cloudflare Workers
 
-## Install :
+Install dependencies:
 
+```bash
+npm install
 ```
-git clone https://github.com/mewmix/vxtwitter-invidious-telegram-bot.git
-````
-Navigate to the cloned directory:
 
+Authenticate Wrangler:
 
+```bash
+npx wrangler login
 ```
-cd vxtwitter-invidious-telegram-bot
+
+Store the Telegram bot token as a Worker secret:
+
+```bash
+npx wrangler secret put TELEGRAM_TOKEN
 ```
-Install the required Python packages:
 
+Create a webhook secret. Use only letters, numbers, `_`, and `-`:
+
+```bash
+openssl rand -hex 32
 ```
-pip install -r requirements.txt
+
+Store that value as another Worker secret:
+
+```bash
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
 ```
-Create a new bot in Telegram and obtain the bot token. For instructions on how to do this, see Telegram's [bot father](https://t.me/botfather).
 
-Create a new .env file in the project directory and add the following line:
+Deploy:
 
+```bash
+npm run deploy
 ```
-TELEGRAM_TOKEN=your_bot_token_here
+
+Wrangler will print the Worker URL, for example:
+
+```text
+https://fxtwitter-invidious-telegram-bot.<account>.workers.dev
 ```
-Replace your_bot_token_here with the bot token obtained in step 4.
 
-Run the bot:
+Register the Telegram webhook using the same values you stored above:
 
+```bash
+curl -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setWebhook" \
+  -H 'Content-Type: application/json' \
+  -d "{\"url\":\"https://YOUR-WORKER.workers.dev/webhook\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\"]}"
 ```
-python bot.py
+
+Check webhook status:
+
+```bash
+curl "https://api.telegram.org/bot${TELEGRAM_TOKEN}/getWebhookInfo"
 ```
-That's it! You should now be able to use the bot to convert YouTube and Twitter links to alternative URLs in your Telegram conversations. 
 
-To trigger the url conversion just tag the bot in conversation. For twitter links they will be automatically handled and the original message will be deleted after being processed. The user that sent the message will be tagged upon its completion.
+Health check:
 
+```bash
+curl "https://YOUR-WORKER.workers.dev/health"
+```
 
+## Local development
 
-If you encounter any issues, please refer to the project's Github page for further information or contact me on [telegram](https://t.me/s/ze_rg).
+Create `.dev.vars`:
 
-### Permissions
-Talk to [bot father](https://t.me/botfather) - make sure Group Privacy is Off & The Bot Requests Delete Posts in Admin Rights
+```text
+TELEGRAM_TOKEN=your_bot_token
+TELEGRAM_WEBHOOK_SECRET=local-test-secret
+```
 
-<img width="282" alt="Screen Shot 2023-03-14 at 11 10 56 PM" src="https://user-images.githubusercontent.com/42463809/225224122-d087f9e0-e8f8-4ebe-9eb3-7af11b54a5f0.png">
+Then run:
 
-<img width="340" alt="Screen Shot 2023-03-14 at 11 11 03 PM" src="https://user-images.githubusercontent.com/42463809/225224120-3334e30e-a0c7-406c-bef6-7186c2731bc4.png">
+```bash
+npm run dev
+```
 
-<img width="425" alt="Screen Shot 2023-03-14 at 11 11 11 PM" src="https://user-images.githubusercontent.com/42463809/225224118-eaad0628-b9e1-49b9-9741-113bbdbdafcd.png">
+## Invidious instance
+
+The default remains `https://y.com.sb`, matching the original bot. Change `INVIDIOUS_BASE_URL` in `wrangler.jsonc` if you want another instance.
+
+## Behavior
+
+Twitter/X links are handled automatically. YouTube links are converted only when the bot is mentioned, preserving the original bot behavior.
