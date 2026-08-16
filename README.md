@@ -30,22 +30,18 @@ Authenticate Wrangler:
 npx wrangler login
 ```
 
-Store the Telegram bot token as a Worker secret:
+Put the bot token in a local file (gitignored) and store it as a Worker secret:
 
 ```bash
-npx wrangler secret put TELEGRAM_TOKEN
+echo -n "YOUR_BOT_TOKEN" > telegram-token
+npx wrangler secret put TELEGRAM_TOKEN < telegram-token
 ```
 
-Create a webhook secret. Use only letters, numbers, `_`, and `-`:
+Create a webhook secret (letters/numbers only from `openssl rand -hex`) and store it as another Worker secret, keeping the file for webhook registration:
 
 ```bash
-openssl rand -hex 32
-```
-
-Store that value as another Worker secret:
-
-```bash
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET
+openssl rand -hex 32 > telegram-webhook-secret
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET < telegram-webhook-secret
 ```
 
 Deploy:
@@ -60,19 +56,13 @@ Wrangler will print the Worker URL, for example:
 https://fxtwitter-invidious-telegram-bot.<account>.workers.dev
 ```
 
-Register the Telegram webhook using the same values you stored above:
+Register the Telegram webhook against that URL (idempotent, safe to re-run after a URL change):
 
 ```bash
-curl -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setWebhook" \
-  -H 'Content-Type: application/json' \
-  -d "{\"url\":\"https://YOUR-WORKER.workers.dev/webhook\",\"secret_token\":\"${TELEGRAM_WEBHOOK_SECRET}\",\"allowed_updates\":[\"message\"]}"
+npm run set-webhook -- https://YOUR-WORKER.workers.dev
 ```
 
-Check webhook status:
-
-```bash
-curl "https://api.telegram.org/bot${TELEGRAM_TOKEN}/getWebhookInfo"
-```
+The script reads `telegram-token` and `telegram-webhook-secret`, calls `setWebhook` with `allowed_updates: ["message"]`, and prints `getWebhookInfo` for confirmation.
 
 Health check:
 

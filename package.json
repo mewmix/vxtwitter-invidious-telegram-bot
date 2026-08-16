@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "set-webhook": "node scripts/set-webhook.mjs",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

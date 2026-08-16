@@ -2,3 +2,5 @@ node_modules/
 .wrangler/
 .dev.vars
 .env
+telegram-token
+telegram-webhook-secret
