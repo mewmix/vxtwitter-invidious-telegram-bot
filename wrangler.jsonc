@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "fxtwitter-invidious-telegram-bot",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-16",
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "INVIDIOUS_BASE_URL": "https://y.com.sb"
+  }
+}
