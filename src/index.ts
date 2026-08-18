@@ -2,6 +2,8 @@ interface Env {
   TELEGRAM_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   INVIDIOUS_BASE_URL?: string;
+  INSTAGRAM_BASE_URL?: string;
+  REDLIB_BASE_URL?: string;
 }
 
 interface TelegramUser {
@@ -49,6 +51,19 @@ const YOUTUBE_HOSTS = new Set([
   "www.youtube.com",
   "m.youtube.com",
 ]);
+const INSTAGRAM_HOSTS = new Set([
+  "instagram.com",
+  "www.instagram.com",
+  "m.instagram.com",
+]);
+const REDDIT_HOSTS = new Set([
+  "reddit.com",
+  "www.reddit.com",
+  "old.reddit.com",
+  "new.reddit.com",
+  "np.reddit.com",
+]);
+const REDDIT_SHORT_HOSTS = new Set(["redd.it", "www.redd.it"]);
 
 function candidateUrls(text: string): URL[] {
   const matches = text.match(URL_RE) ?? [];
@@ -66,6 +81,14 @@ function candidateUrls(text: string): URL[] {
   return urls;
 }
 
+function normalizedBaseUrl(baseUrl: string): string {
+  return baseUrl.replace(/\/$/, "");
+}
+
+function proxiedUrl(url: URL, baseUrl: string): string {
+  return `${normalizedBaseUrl(baseUrl)}${url.pathname}${url.search}${url.hash}`;
+}
+
 function fxTwitterUrl(text: string): string | null {
   for (const url of candidateUrls(text)) {
     if (!TWITTER_HOSTS.has(url.hostname.toLowerCase())) continue;
@@ -75,6 +98,33 @@ function fxTwitterUrl(text: string): string | null {
 
     const [, username, statusId] = match;
     return `https://fxtwitter.com/${username}/status/${statusId}`;
+  }
+
+  return null;
+}
+
+function instagramUrl(text: string, baseUrl: string): string | null {
+  for (const url of candidateUrls(text)) {
+    if (!INSTAGRAM_HOSTS.has(url.hostname.toLowerCase())) continue;
+    return proxiedUrl(url, baseUrl);
+  }
+
+  return null;
+}
+
+function redlibUrl(text: string, baseUrl: string): string | null {
+  for (const url of candidateUrls(text)) {
+    const host = url.hostname.toLowerCase();
+
+    if (REDDIT_HOSTS.has(host)) {
+      return proxiedUrl(url, baseUrl);
+    }
+
+    if (REDDIT_SHORT_HOSTS.has(host)) {
+      const postId = url.pathname.split("/").filter(Boolean)[0];
+      if (!postId) continue;
+      return `${normalizedBaseUrl(baseUrl)}/comments/${encodeURIComponent(postId)}${url.search}${url.hash}`;
+    }
   }
 
   return null;
@@ -181,8 +231,8 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
 
   const videoId = youtubeVideoId(text);
   if (videoId && (await isBotMentioned(text, env))) {
-    const baseUrl = (env.INVIDIOUS_BASE_URL ?? "https://y.com.sb").replace(/\/$/, "");
-    const invidiousUrl = `${baseUrl}/watch?v=${encodeURIComponent(videoId)}`;
+    const baseUrl = env.INVIDIOUS_BASE_URL ?? "https://y.com.sb";
+    const invidiousUrl = `${normalizedBaseUrl(baseUrl)}/watch?v=${encodeURIComponent(videoId)}`;
     await sendReplacementAndDelete(
       message,
       `Here is an invidious url for ${senderLabel(message.from)}: ${invidiousUrl}`,
@@ -192,13 +242,39 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   }
 
   const fxUrl = fxTwitterUrl(text);
-  if (!fxUrl) return;
+  if (fxUrl) {
+    await sendReplacementAndDelete(
+      message,
+      `Hi ${senderLabel(message.from)}, your Twitter/X link is ${fxUrl}.`,
+      env,
+    );
+    return;
+  }
 
-  await sendReplacementAndDelete(
-    message,
-    `Hi ${senderLabel(message.from)}, your Twitter/X link is ${fxUrl}.`,
-    env,
+  const instagram = instagramUrl(
+    text,
+    env.INSTAGRAM_BASE_URL ?? "https://oginstagram.com",
   );
+  if (instagram) {
+    await sendReplacementAndDelete(
+      message,
+      `Hi ${senderLabel(message.from)}, your Instagram link is ${instagram}.`,
+      env,
+    );
+    return;
+  }
+
+  const reddit = redlibUrl(
+    text,
+    env.REDLIB_BASE_URL ?? "https://redlib.privacyredirect.com",
+  );
+  if (reddit) {
+    await sendReplacementAndDelete(
+      message,
+      `Hi ${senderLabel(message.from)}, your Reddit link is ${reddit}.`,
+      env,
+    );
+  }
 }
 
 export default {
