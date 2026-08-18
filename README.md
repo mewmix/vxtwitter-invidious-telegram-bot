@@ -1,10 +1,11 @@
-# FxTwitter + Invidious Telegram Bot
+# FxTwitter + Invidious + Instagram + Redlib Telegram Bot
 
 A small Telegram bot deployed as a Cloudflare Worker.
 
-- `twitter.com/<user>/status/<id>` -> `fxtwitter.com/<user>/status/<id>`
-- `x.com/<user>/status/<id>` -> `fxtwitter.com/<user>/status/<id>`
-- YouTube links -> Invidious when the bot is mentioned
+- `twitter.com/<user>/status/<id>` / `x.com/<user>/status/<id>` -> `fxtwitter.com/<user>/status/<id>`
+- Instagram links -> `oginstagram.com`
+- Reddit links -> configured Redlib instance
+- YouTube links -> configured Invidious instance when the bot is mentioned
 - Deletes the original Telegram message after a successful replacement
 - Uses Telegram webhooks instead of a continuously running polling process
 
@@ -30,14 +31,14 @@ Authenticate Wrangler:
 npx wrangler login
 ```
 
-Put the bot token in a local file (gitignored) and store it as a Worker secret:
+Store the bot token as a Worker secret:
 
 ```bash
 echo -n "YOUR_BOT_TOKEN" > telegram-token
 npx wrangler secret put TELEGRAM_TOKEN < telegram-token
 ```
 
-Create a webhook secret (letters/numbers only from `openssl rand -hex`) and store it as another Worker secret, keeping the file for webhook registration:
+Create and store the webhook secret:
 
 ```bash
 openssl rand -hex 32 > telegram-webhook-secret
@@ -50,19 +51,11 @@ Deploy:
 npm run deploy
 ```
 
-Wrangler will print the Worker URL, for example:
-
-```text
-https://fxtwitter-invidious-telegram-bot.<account>.workers.dev
-```
-
-Register the Telegram webhook against that URL (idempotent, safe to re-run after a URL change):
+Register the Telegram webhook:
 
 ```bash
 npm run set-webhook -- https://YOUR-WORKER.workers.dev
 ```
-
-The script reads `telegram-token` and `telegram-webhook-secret`, calls `setWebhook` with `allowed_updates: ["message"]`, and prints `getWebhookInfo` for confirmation.
 
 Health check:
 
@@ -85,10 +78,18 @@ Then run:
 npm run dev
 ```
 
-## Invidious instance
+## Frontend configuration
 
-The default remains `https://y.com.sb`, matching the original bot. Change `INVIDIOUS_BASE_URL` in `wrangler.jsonc` if you want another instance.
+Defaults are configured in `wrangler.jsonc`:
+
+```text
+INVIDIOUS_BASE_URL=https://y.com.sb
+INSTAGRAM_BASE_URL=https://oginstagram.com
+REDLIB_BASE_URL=https://redlib.privacyredirect.com
+```
+
+Change any of those instance URLs without changing the rewrite logic.
 
 ## Behavior
 
-Twitter/X links are handled automatically. YouTube links are converted only when the bot is mentioned, preserving the original bot behavior.
+Twitter/X, Instagram, and Reddit links are handled automatically. YouTube links are converted only when the bot is mentioned, preserving the original bot behavior.
