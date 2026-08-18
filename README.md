@@ -1,13 +1,55 @@
-# FxTwitter + Invidious + Instagram + Redlib Telegram Bot
+# Social Frontend Telegram Bot
 
-A small Telegram bot deployed as a Cloudflare Worker.
+A small Telegram bot deployed as a Cloudflare Worker that rewrites supported links to privacy-friendly or embed-friendly frontends, then deletes the original Telegram message after a successful replacement.
 
-- `twitter.com/<user>/status/<id>` / `x.com/<user>/status/<id>` -> `fxtwitter.com/<user>/status/<id>`
-- Instagram links -> `oginstagram.com`
-- Reddit links -> configured Redlib instance
-- YouTube links -> configured Invidious instance when the bot is mentioned
-- Deletes the original Telegram message after a successful replacement
-- Uses Telegram webhooks instead of a continuously running polling process
+## Enabled by default
+
+- Twitter/X status links -> FxTwitter
+- Instagram links -> OGInstagram
+- Reddit links -> Redlib
+- YouTube links -> Invidious when the bot is mentioned
+
+The default Worker configuration is:
+
+```text
+INVIDIOUS_BASE_URL=https://y.com.sb
+INSTAGRAM_BASE_URL=https://oginstagram.com
+REDLIB_BASE_URL=https://redlib.privacyredirect.com
+```
+
+## Optional frontends
+
+Additional LibRedirect-inspired rewrites are implemented but remain disabled until a base URL is configured. This avoids silently depending on a random public instance.
+
+```text
+PROXITOK_BASE_URL=      # TikTok -> ProxiTok
+SAFETWITCH_BASE_URL=    # Twitch -> SafeTwitch
+RIMGO_BASE_URL=         # Imgur -> rimgo
+SCRIBE_BASE_URL=        # Medium -> Scribe-compatible frontend
+QUETRE_BASE_URL=        # Quora -> Quetre
+BREEZEWIKI_BASE_URL=    # Fandom/Wikia -> BreezeWiki
+SKYVIEW_BASE_URL=       # Bluesky -> Skyview
+SHOELACE_BASE_URL=      # Threads -> Shoelace-compatible frontend
+PRIVIBLUR_BASE_URL=     # Tumblr -> Priviblur
+```
+
+Set any of these in `wrangler.jsonc` under `vars` to enable that service.
+
+## Reddit handling
+
+Redlib rewriting handles normal Reddit URLs plus the common short/media forms:
+
+```text
+reddit.com/...                  -> REDLIB/...
+old.reddit.com/...              -> REDLIB/...
+new.reddit.com/...              -> REDLIB/...
+np.reddit.com/...               -> REDLIB/...
+amp.reddit.com/...              -> REDLIB/...
+redd.it/<id>                    -> REDLIB/comments/<id>
+i.redd.it/...                   -> REDLIB/img/...
+preview.redd.it/...             -> REDLIB/preview/pre...
+external-preview.redd.it/...    -> REDLIB/preview/external-pre...
+```
 
 ## Telegram setup
 
@@ -78,18 +120,8 @@ Then run:
 npm run dev
 ```
 
-## Frontend configuration
+## Architecture
 
-Defaults are configured in `wrangler.jsonc`:
+The Telegram webhook/send/delete behavior lives in `src/index.ts`. URL detection and frontend-specific transformations live in `src/rewrites.ts` as a registry of rewrite rules. This keeps new platforms isolated from the webhook plumbing and makes frontend instance changes configuration-only.
 
-```text
-INVIDIOUS_BASE_URL=https://y.com.sb
-INSTAGRAM_BASE_URL=https://oginstagram.com
-REDLIB_BASE_URL=https://redlib.privacyredirect.com
-```
-
-Change any of those instance URLs without changing the rewrite logic.
-
-## Behavior
-
-Twitter/X, Instagram, and Reddit links are handled automatically. YouTube links are converted only when the bot is mentioned, preserving the original bot behavior.
+YouTube preserves the original bot behavior: a YouTube link is converted only when the bot is mentioned. Other enabled services are handled automatically.
