@@ -208,7 +208,7 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
 
   const videoId = youtubeVideoId(text);
   if (videoId) {
-    const baseUrl = env.INVIDIOUS_BASE_URL ?? "https://y.com.sb";
+    const baseUrl = env.INVIDIOUS_BASE_URL ?? "https://invidious.f5.si";
     const invidiousUrl = `${normalizedBaseUrl(baseUrl)}/watch?v=${encodeURIComponent(videoId)}`;
     await sendReplacementAndDelete(
       message,

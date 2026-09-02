@@ -83,7 +83,7 @@ npm run dev
 Defaults are configured in `wrangler.jsonc`:
 
 ```text
-INVIDIOUS_BASE_URL=https://y.com.sb
+INVIDIOUS_BASE_URL=https://invidious.f5.si
 INSTAGRAM_BASE_URL=https://oginstagram.com
 REDDIT_MEDIA_BASE_URL=https://rxddit.com
 ```
