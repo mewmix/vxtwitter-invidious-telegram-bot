@@ -9,6 +9,6 @@
   "vars": {
     "INVIDIOUS_BASE_URL": "https://y.com.sb",
     "INSTAGRAM_BASE_URL": "https://oginstagram.com",
-    "REDLIB_BASE_URL": "https://redlib.privacyredirect.com"
+    "REDDIT_MEDIA_BASE_URL": "https://rxddit.com"
   }
 }

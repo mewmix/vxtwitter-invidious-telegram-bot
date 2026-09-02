@@ -3,7 +3,7 @@ interface Env {
   TELEGRAM_WEBHOOK_SECRET: string;
   INVIDIOUS_BASE_URL?: string;
   INSTAGRAM_BASE_URL?: string;
-  REDLIB_BASE_URL?: string;
+  REDDIT_MEDIA_BASE_URL?: string;
 }
 
 interface TelegramUser {
@@ -87,11 +87,11 @@ function fxTwitterUrl(text: string): string | null {
   for (const url of candidateUrls(text)) {
     if (!TWITTER_HOSTS.has(url.hostname.toLowerCase())) continue;
 
-    const match = url.pathname.match(/^\/([^/]+)\/status\/(\d+)/i);
+    const match = url.pathname.match(/\/status\/(\d+)/i);
     if (!match) continue;
 
-    const [, username, statusId] = match;
-    return `https://fxtwitter.com/${username}/status/${statusId}`;
+    const [, statusId] = match;
+    return `https://fxtwitter.com/i/status/${statusId}`;
   }
 
   return null;
@@ -106,7 +106,7 @@ function instagramUrl(text: string, baseUrl: string): string | null {
   return null;
 }
 
-function redlibUrl(text: string, baseUrl: string): string | null {
+function redditMediaUrl(text: string, baseUrl: string): string | null {
   for (const url of candidateUrls(text)) {
     const host = url.hostname.toLowerCase();
 
@@ -117,7 +117,7 @@ function redlibUrl(text: string, baseUrl: string): string | null {
     if (REDDIT_SHORT_HOSTS.has(host)) {
       const postId = url.pathname.split("/").filter(Boolean)[0];
       if (!postId) continue;
-      return `${normalizedBaseUrl(baseUrl)}/comments/${encodeURIComponent(postId)}${url.search}${url.hash}`;
+      return `${normalizedBaseUrl(baseUrl)}/${encodeURIComponent(postId)}${url.search}${url.hash}`;
     }
   }
 
@@ -241,9 +241,9 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
     return;
   }
 
-  const reddit = redlibUrl(
+  const reddit = redditMediaUrl(
     text,
-    env.REDLIB_BASE_URL ?? "https://redlib.privacyredirect.com",
+    env.REDDIT_MEDIA_BASE_URL ?? "https://rxddit.com",
   );
   if (reddit) {
     await sendReplacementAndDelete(
