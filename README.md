@@ -5,7 +5,7 @@ A small Telegram bot deployed as a Cloudflare Worker.
 - `twitter.com/<user>/status/<id>` / `x.com/<user>/status/<id>` -> `fxtwitter.com/<user>/status/<id>`
 - Instagram links -> `oginstagram.com`
 - Reddit links -> configured Redlib instance
-- YouTube links -> configured Invidious instance when the bot is mentioned
+- YouTube links -> configured Invidious instance
 - Deletes the original Telegram message after a successful replacement
 - Uses Telegram webhooks instead of a continuously running polling process
 
@@ -92,4 +92,4 @@ Change any of those instance URLs without changing the rewrite logic.
 
 ## Behavior
 
-Twitter/X, Instagram, and Reddit links are handled automatically. YouTube links are converted only when the bot is mentioned, preserving the original bot behavior.
+Twitter/X, Instagram, Reddit, and YouTube links are handled automatically.

@@ -31,12 +31,6 @@ interface TelegramApiResponse<T> {
   description?: string;
 }
 
-interface TelegramBotInfo {
-  username?: string;
-}
-
-let cachedBotUsername: string | undefined;
-
 const URL_RE = /https?:\/\/[^\s<>()]+/gi;
 const TWITTER_HOSTS = new Set([
   "twitter.com",
@@ -185,23 +179,6 @@ async function telegramCall<T>(
   return payload.result as T;
 }
 
-async function getBotUsername(env: Env): Promise<string | null> {
-  if (cachedBotUsername) return cachedBotUsername;
-
-  const bot = await telegramCall<TelegramBotInfo>(env, "getMe", {});
-  if (!bot.username) return null;
-
-  cachedBotUsername = bot.username;
-  return cachedBotUsername;
-}
-
-async function isBotMentioned(text: string, env: Env): Promise<boolean> {
-  const username = await getBotUsername(env);
-  if (!username) return false;
-
-  return text.toLowerCase().includes(`@${username.toLowerCase()}`);
-}
-
 async function sendReplacementAndDelete(
   message: TelegramMessage,
   replacementText: string,
@@ -230,7 +207,7 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   if (!text) return;
 
   const videoId = youtubeVideoId(text);
-  if (videoId && (await isBotMentioned(text, env))) {
+  if (videoId) {
     const baseUrl = env.INVIDIOUS_BASE_URL ?? "https://y.com.sb";
     const invidiousUrl = `${normalizedBaseUrl(baseUrl)}/watch?v=${encodeURIComponent(videoId)}`;
     await sendReplacementAndDelete(
