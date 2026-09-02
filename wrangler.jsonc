@@ -9,6 +9,6 @@
   "vars": {
     "INVIDIOUS_BASE_URL": "https://invidious.f5.si",
     "INSTAGRAM_BASE_URL": "https://oginstagram.com",
-    "REDDIT_MEDIA_BASE_URL": "https://rxddit.com"
+    "REDDIT_MEDIA_BASE_URL": "https://www.redditmedia.com"
   }
 }

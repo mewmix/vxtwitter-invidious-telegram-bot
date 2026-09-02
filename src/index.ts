@@ -106,18 +106,32 @@ function instagramUrl(text: string, baseUrl: string): string | null {
   return null;
 }
 
+function redditEmbedUrl(url: URL, baseUrl: string, pathname = url.pathname): string {
+  const searchParams = new URLSearchParams(url.search);
+  searchParams.set("ref_source", "embed");
+  searchParams.set("ref", "share");
+  searchParams.set("embed", "true");
+  searchParams.set("showmedia", "true");
+
+  return `${normalizedBaseUrl(baseUrl)}${pathname}?${searchParams}${url.hash}`;
+}
+
 function redditMediaUrl(text: string, baseUrl: string): string | null {
   for (const url of candidateUrls(text)) {
     const host = url.hostname.toLowerCase();
 
     if (REDDIT_HOSTS.has(host)) {
-      return proxiedUrl(url, baseUrl);
+      return redditEmbedUrl(url, baseUrl);
     }
 
     if (REDDIT_SHORT_HOSTS.has(host)) {
       const postId = url.pathname.split("/").filter(Boolean)[0];
       if (!postId) continue;
-      return `${normalizedBaseUrl(baseUrl)}/${encodeURIComponent(postId)}${url.search}${url.hash}`;
+      return redditEmbedUrl(
+        url,
+        baseUrl,
+        `/comments/${encodeURIComponent(postId)}/`,
+      );
     }
   }
 
@@ -243,7 +257,7 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
 
   const reddit = redditMediaUrl(
     text,
-    env.REDDIT_MEDIA_BASE_URL ?? "https://rxddit.com",
+    env.REDDIT_MEDIA_BASE_URL ?? "https://www.redditmedia.com",
   );
   if (reddit) {
     await sendReplacementAndDelete(

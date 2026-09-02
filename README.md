@@ -4,7 +4,7 @@ A small Telegram bot deployed as a Cloudflare Worker.
 
 - Twitter/X status links -> `fxtwitter.com/i/status/<id>`
 - Instagram links -> `oginstagram.com`
-- Reddit links -> `rxddit.com` media previews
+- Reddit links -> `redditmedia.com` embeds
 - YouTube links -> configured Invidious instance
 - Deletes the original Telegram message after a successful replacement
 - Uses Telegram webhooks instead of a continuously running polling process
@@ -85,7 +85,7 @@ Defaults are configured in `wrangler.jsonc`:
 ```text
 INVIDIOUS_BASE_URL=https://invidious.f5.si
 INSTAGRAM_BASE_URL=https://oginstagram.com
-REDDIT_MEDIA_BASE_URL=https://rxddit.com
+REDDIT_MEDIA_BASE_URL=https://www.redditmedia.com
 ```
 
 Change any of those instance URLs without changing the rewrite logic.
