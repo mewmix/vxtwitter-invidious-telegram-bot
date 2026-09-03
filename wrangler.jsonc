@@ -7,6 +7,7 @@
     "enabled": true
   },
   "vars": {
-    "INVIDIOUS_BASE_URL": "https://y.com.sb"
+    "INVIDIOUS_BASE_URL": "https://y.com.sb",
+    "INSTAGRAM_BASE_URL": "https://oginstagram.com"
   }
 }

@@ -4,6 +4,7 @@ A small Telegram bot deployed as a Cloudflare Worker.
 
 - `twitter.com/<user>/status/<id>` -> `fxtwitter.com/<user>/status/<id>`
 - `x.com/<user>/status/<id>` -> `fxtwitter.com/<user>/status/<id>`
+- Instagram links -> `oginstagram.com`
 - YouTube links -> Invidious when the bot is mentioned
 - Deletes the original Telegram message after a successful replacement
 - Uses Telegram webhooks instead of a continuously running polling process
@@ -85,10 +86,10 @@ Then run:
 npm run dev
 ```
 
-## Invidious instance
+## Frontend instances
 
-The default remains `https://y.com.sb`, matching the original bot. Change `INVIDIOUS_BASE_URL` in `wrangler.jsonc` if you want another instance.
+The Invidious default remains `https://y.com.sb`, matching the original bot. Instagram links use `https://oginstagram.com`. Change `INVIDIOUS_BASE_URL` or `INSTAGRAM_BASE_URL` in `wrangler.jsonc` to use another instance.
 
 ## Behavior
 
-Twitter/X links are handled automatically. YouTube links are converted only when the bot is mentioned, preserving the original bot behavior.
+Twitter/X and Instagram links are handled automatically. YouTube links are converted only when the bot is mentioned, preserving the original bot behavior.

@@ -2,6 +2,7 @@ interface Env {
   TELEGRAM_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
   INVIDIOUS_BASE_URL?: string;
+  INSTAGRAM_BASE_URL?: string;
 }
 
 interface TelegramUser {
@@ -49,6 +50,11 @@ const YOUTUBE_HOSTS = new Set([
   "www.youtube.com",
   "m.youtube.com",
 ]);
+const INSTAGRAM_HOSTS = new Set([
+  "instagram.com",
+  "www.instagram.com",
+  "m.instagram.com",
+]);
 
 function candidateUrls(text: string): URL[] {
   const matches = text.match(URL_RE) ?? [];
@@ -75,6 +81,16 @@ function fxTwitterUrl(text: string): string | null {
 
     const [, username, statusId] = match;
     return `https://fxtwitter.com/${username}/status/${statusId}`;
+  }
+
+  return null;
+}
+
+function instagramUrl(text: string, baseUrl: string): string | null {
+  for (const url of candidateUrls(text)) {
+    if (!INSTAGRAM_HOSTS.has(url.hostname.toLowerCase())) continue;
+
+    return `${baseUrl.replace(/\/$/, "")}${url.pathname}${url.search}${url.hash}`;
   }
 
   return null;
@@ -192,11 +208,24 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   }
 
   const fxUrl = fxTwitterUrl(text);
-  if (!fxUrl) return;
+  if (fxUrl) {
+    await sendReplacementAndDelete(
+      message,
+      `Hi ${senderLabel(message.from)}, your Twitter/X link is ${fxUrl}.`,
+      env,
+    );
+    return;
+  }
+
+  const instagram = instagramUrl(
+    text,
+    env.INSTAGRAM_BASE_URL ?? "https://oginstagram.com",
+  );
+  if (!instagram) return;
 
   await sendReplacementAndDelete(
     message,
-    `Hi ${senderLabel(message.from)}, your Twitter/X link is ${fxUrl}.`,
+    `Hi ${senderLabel(message.from)}, your Instagram link is ${instagram}.`,
     env,
   );
 }
