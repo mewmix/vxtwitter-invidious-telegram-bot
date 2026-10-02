@@ -1,16 +1,27 @@
 {
-  "name": "fxtwitter-invidious-telegram-bot",
+  "name": "verifiable-telegram-dice",
   "private": true,
-  "version": "2.0.0",
+  "version": "1.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.7"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "set-webhook": "node scripts/set-webhook.mjs",
-    "typecheck": "tsc --noEmit"
+    "verify": "node scripts/verify-roll.mjs",
+    "test": "node --experimental-transform-types --test test/*.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "check": "node scripts/check-syntax.mjs && npm run typecheck && npm test",
+    "build:check": "wrangler deploy --dry-run"
+  },
+  "dependencies": {
+    "@noble/curves": "1.9.7",
+    "@noble/hashes": "1.8.0"
   },
   "devDependencies": {
-    "typescript": "^5.9.2",
-    "wrangler": "^4.29.1"
+    "typescript": "5.9.3",
+    "wrangler": "4.123.0"
   }
 }

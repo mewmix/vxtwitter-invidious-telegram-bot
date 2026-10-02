@@ -1,12 +1,34 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "fxtwitter-invidious-telegram-bot",
+  "name": "verifiable-telegram-dice",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-16",
   "observability": {
     "enabled": true
   },
   "vars": {
-    "INVIDIOUS_BASE_URL": "https://y.com.sb"
-  }
+    "BOT_USERNAME": "REPLACE_WITH_NEW_BOT_USERNAME",
+    "PUBLIC_BASE_URL": "https://REPLACE_WITH_DICE_WORKER.workers.dev"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ROLLS",
+        "class_name": "DiceRoll"
+      },
+      {
+        "name": "CHAT_GATE",
+        "class_name": "ChatGate"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1-dice",
+      "new_sqlite_classes": [
+        "DiceRoll",
+        "ChatGate"
+      ]
+    }
+  ]
 }

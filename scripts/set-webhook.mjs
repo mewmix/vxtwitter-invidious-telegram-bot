@@ -44,6 +44,15 @@ if (!workerUrl || !token || !webhookSecret) {
   process.exit(1);
 }
 
+const parsedUrl = new URL(workerUrl);
+if (parsedUrl.protocol !== "https:" || parsedUrl.username || parsedUrl.password ||
+    parsedUrl.pathname !== "/" || parsedUrl.search || parsedUrl.hash) {
+  throw new Error("Worker URL must be an HTTPS origin with no credentials, path, or query.");
+}
+if (!/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret)) {
+  throw new Error("Invalid Telegram webhook secret format.");
+}
+
 const api = (method) => `https://api.telegram.org/bot${token}/${method}`;
 
 async function call(method, body) {
@@ -53,7 +62,7 @@ async function call(method, body) {
     body: JSON.stringify(body),
   });
   const payload = await response.json();
-  if (!payload.ok) {
+  if (!response.ok || !payload.ok) {
     throw new Error(`${method} failed: ${payload.description}`);
   }
   return payload.result;
