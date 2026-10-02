@@ -29,17 +29,34 @@ export function verifyBeacon(beacon, expectedRound) {
   }
 }
 const RELAYS = ["https://api.drand.sh", "https://api2.drand.sh", "https://api3.drand.sh"];
+
+async function relayBeacon(relay, path, timeoutMs) {
+  const response = await fetch(relay + "/" + CHAIN_HASH + path, { signal: AbortSignal.timeout(timeoutMs) });
+  if (!response.ok) throw new Error("drand relay failed");
+  const body = await response.json();
+  const beacon = { round: body.round, signature: body.signature, randomness: body.randomness };
+  if (!verifyBeacon(beacon, beacon.round)) throw new Error("drand verification failed");
+  return beacon;
+}
+
 export async function fetchBeacon(round) {
   for (const relay of RELAYS) {
     try {
-      const response = await fetch(relay + "/" + CHAIN_HASH + "/public/" + round, {
-        signal: AbortSignal.timeout(4000),
-      });
-      if (!response.ok) continue;
-      const body = await response.json();
-      const beacon = { round: body.round, signature: body.signature, randomness: body.randomness };
-      if (verifyBeacon(beacon, round)) return beacon;
+      const beacon = await relayBeacon(relay, "/public/" + round, 4000);
+      if (beacon.round === round) return beacon;
     } catch { /* Try another relay, for the same pinned chain and round only. */ }
   }
   throw new Error("No valid beacon available");
+}
+
+// Fast gameplay path: query relays in parallel and use the first locally verified
+// quicknet response. Callers may fall back to the already-precommitted Worker
+// secret when drand is temporarily unavailable; the proof records that explicitly.
+export async function fetchLatestBeacon(timeoutMs = 1200) {
+  const attempts = RELAYS.map(relay => relayBeacon(relay, "/public/latest", timeoutMs));
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    throw new Error("No recent valid beacon available");
+  }
 }

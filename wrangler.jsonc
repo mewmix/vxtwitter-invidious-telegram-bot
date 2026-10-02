@@ -19,6 +19,10 @@
       {
         "name": "CHAT_GATE",
         "class_name": "ChatGate"
+      },
+      {
+        "name": "GAME",
+        "class_name": "GameState"
       }
     ]
   },
@@ -28,6 +32,12 @@
       "new_sqlite_classes": [
         "DiceRoll",
         "ChatGate"
+      ]
+    },
+    {
+      "tag": "v2-fast-game",
+      "new_sqlite_classes": [
+        "GameState"
       ]
     }
   ]

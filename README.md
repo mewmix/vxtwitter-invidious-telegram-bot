@@ -1,45 +1,92 @@
-# Verifiable Telegram dice on Cloudflare Workers
+# Verifiable Telegram dice + weighted wheels on Cloudflare Workers
 
-This branch turns the existing FxTwitter/Invidious Worker into a separate dice bot. It responds to commands and ignores link traffic. Use a new BotFather token and a separate Worker name so the existing link bot can keep running.
+This branch is a standalone Telegram tabletop-game bot. It keeps the original future-drand proof mode, but normal play now uses an instant precommitment chain so `/roll` and weighted-wheel spins do not wait for a future beacon.
 
-Commands:
+## Chat commands
 
-- `/roll` — one six-sided die.
-- `/roll d20`.
-- `/roll 2d6+3`.
-- `/roll@YourDiceBot 3d10-2` — explicit addressing in groups.
-- `/dice` is an alias; `/help` explains the proof.
+Dice:
 
-Up to 100 dice, 2–1,000,000 sides, and modifiers from −100,000 to +100,000. No arbitrary expression evaluation. Group topics are preserved. Keep Telegram group privacy enabled; this bot only needs command messages and permission to send replies, without administrator or delete permissions.
+```text
+/roll
+/roll d20
+/roll 2d6+3
+/rollproof 2d6+3     # older ~60s future-drand protocol
+```
 
-## What the proof establishes
+Weighted wheels:
 
-Randomness comes from **drand quicknet**, a distributed threshold BLS beacon. It is cryptographically verifiable randomness under the network's threshold and cryptographic assumptions. It is **not a physical TRNG or a measurement/proof of physical entropy**. A signature authenticates the beacon output; it cannot prove that every participant's physical entropy source was sound.
+```text
+/wheel create Otters Luck | Lucky:20 | Unlucky:80
+/wheel spin Otters Luck
+/wheel show Otters Luck
+/wheel list
+/wheel set Otters Luck | Lucky:35 | Unlucky:65
+/wheel delete Otters Luck
+```
 
-For each roll:
+`create`, `set`/`difficulty`, `delete`, and entropy resets are restricted to Telegram group administrators. In a private chat the user is allowed to manage the wheel.
 
-1. Hash the Telegram chat ID and original message ID into a stable request ID. Retries of that original message address the same Durable Object.
-2. Fix the quicknet round to the first scheduled round at or after the original Telegram message timestamp plus 60 seconds. No operator-selected seed, latest-round lookup, or round change on retry.
-3. Publish the expression, request ID, requested timestamp, round, and SHA-256 commitment in the group **at least five seconds before** the scheduled beacon. Require Telegram's send acknowledgement before that deadline. A late request or acknowledgement produces no roll.
-4. Fetch that exact round from a relay, verify the G1 BLS signature against the pinned quicknet G2 public key, and check that randomness is SHA-256(signature).
-5. Expand SHA-256 with the receipt commitment, beacon randomness, and a counter. Read big-endian 32-bit words and use rejection sampling to obtain unbiased dice.
-6. Persist the proof before sending a separate result message. Preserve the commitment message for timing verification.
+The parser also understands `Wheelbot spin Otters Luck wheel` and `<BOT_USERNAME> spin Otters Luck wheel` when Telegram actually delivers that plain-text message to the bot. Slash commands remain the reliable group interface when BotFather privacy mode is enabled.
 
-Results normally arrive roughly one minute after the command. Retries survive Worker restarts through Durable Object alarms. Relay failures never change the committed round. An ambiguous Telegram send may cause duplicate messages; every duplicate refers to the same receipt/result.
+Wheel weights are relative integers, not required to sum to 100. `20/80`, `2/8`, and `200/800` describe the same distribution. Each saved change increments the wheel version and changes its configuration hash. Every spin proof contains the exact wheel snapshot used for that spin.
 
-The bot/operator can still refuse requests, suppress delivery, delete its own messages, or change deployed code. A valid proof establishes a particular result, not availability or the absence of selective aborts. Visible commitments make unfinished rolls observable. Preserve/download commitments and proofs if auditing matters. There is no independently signed Telegram timestamp in the proof: verify timing against the actual original group message. A verifier given only operator-controlled JSON cannot establish when that JSON was published.
+## Fast protocol
 
-References:
+Fast gameplay uses two independent ingredients when available:
 
-- [drand cryptography](https://docs.drand.love/docs/cryptography/)
-- [quicknet and its three-second period](https://docs.drand.love/blog/2023/10/16/quicknet-is-live/)
-- [drand's RFC9380 verification implementation](https://github.com/drand/drand-client/blob/master/lib/beacon-verification.ts)
-- [Cloudflare Durable Object alarms](https://developers.cloudflare.com/durable-objects/api/alarms/)
-- [Telegram webhook authentication](https://core.telegram.org/bots/api#setwebhook)
+1. A 256-bit secret from Cloudflare Workers `crypto.getRandomValues()` whose SHA-256 commitment was already published in the chat by the preceding initialization/result message.
+2. The first quickly reachable **locally verified** latest drand quicknet beacon. The three configured relays are queried in parallel with a 1.2-second deadline. If none responds and verifies in time, the roll continues from the precommitted Worker secret alone and the proof explicitly records `beacon: null`.
+
+The chain works like this:
+
+```text
+Telegram publishes commitment N
+            |
+player sends /roll or /wheel spin
+            |
+Worker reveals secret N in proof
+            + verified recent drand when reachable quickly
+            + Telegram request ID
+            + exact dice/wheel configuration
+            |
+       unbiased result
+            |
+Telegram result publishes commitment N+1
+```
+
+A `GameState` Durable Object serializes the chain per chat. It will not allocate the next secret until Telegram has acknowledged publication of its commitment. A concurrent roll waits and retries against the same state instead of skipping to another secret. A webhook retry for the same original message addresses the same `DiceRoll` Durable Object and therefore does not redraw.
+
+The first roll in a chat can bootstrap automatically, but its proof is marked `precommittedBeforeRequest: false` because no public commitment existed before that first request. Run `/start` before play if you want the first real roll to be precommitted too.
+
+Every fast result includes:
+
+- sequence number;
+- whether its commitment predates the request;
+- verified drand round, or an explicit drand-timeout fallback;
+- the **next** 64-hex commitment;
+- `/proof/<request-id>`.
+
+The revealed 256-bit secret is in the proof JSON rather than cluttering the chat message. An independent verifier checks that it hashes to the previously published commitment, verifies drand when present, re-derives the seed, performs rejection sampling, and reproduces the dice/wheel outcome.
+
+This proves consistency with a previously published Worker commitment. It does **not** attest that Cloudflare's underlying CSPRNG is a physical TRNG, nor can it prove that the bot operator never suppresses a result. `/entropy reset` is intentionally noisy and publishes a new chain root instead of silently skipping a stuck value.
+
+## Entropy-chain administration
+
+```text
+/start
+/entropy status
+/entropy reset
+```
+
+`/start` initializes the per-chat chain and publishes its first commitment. `/entropy reset` is admin-only in groups and should be used only for recovery; it explicitly posts that the chain was reset.
+
+## Delayed future-drand mode
+
+`/rollproof` preserves protocol v1 from the earlier branch. It fixes a drand round from the original Telegram timestamp, publishes the commitment before that future round, verifies the BLS signature after publication, and then produces the roll. This remains the stronger timing protocol when waiting roughly a minute is acceptable.
 
 ## Deploy
 
-Use Node.js **22.7 or newer**. Tests use Node's TypeScript transform support. Deployment does not require GitHub Actions.
+Use Node.js 22.7 or newer:
 
 ```bash
 git switch agent/verifiable-dice-worker
@@ -49,90 +96,58 @@ npm run build:check
 npx wrangler login
 ```
 
-In `wrangler.jsonc`, set:
-
-- `BOT_USERNAME` to the **new** bot username without `@`.
-- `PUBLIC_BASE_URL` to the deployed dice Worker's HTTPS origin.
-- Optionally `ALLOWED_CHAT_IDS` to a comma-separated list of allowed Telegram chat IDs.
-
-The new Worker name is `verifiable-telegram-dice`. Both Durable Object classes use SQLite-backed storage. The migration and bindings are included. Check your Cloudflare plan's current Durable Objects limits and CPU allowance; pure JavaScript BLS verification must be exercised in the actual Worker before relying on deployment. Increase the Worker CPU allowance if your plan requires it.
-
-Store the **new bot's** token and webhook secret:
+Set `BOT_USERNAME` and `PUBLIC_BASE_URL` in `wrangler.jsonc`, then add the new bot's secrets:
 
 ```bash
 npx wrangler secret put TELEGRAM_TOKEN
 openssl rand -hex 32 > telegram-webhook-secret
 npx wrangler secret put TELEGRAM_WEBHOOK_SECRET < telegram-webhook-secret
 npm run deploy
-```
-
-Store the new bot token in the gitignored `telegram-token` file or provide `TELEGRAM_TOKEN` through your local environment. Register its webhook:
-
-```bash
 npm run set-webhook -- https://YOUR-DICE-WORKER.workers.dev
 ```
 
-Add that bot to the group, send `/roll@YourDiceBot 2d6+3`, and check both the commitment and result. Do not register the existing link bot's token against the new Worker: Telegram allows one webhook per bot.
+`ROLLS`, `CHAT_GATE`, and `GAME` are SQLite-backed Durable Objects. The `v2-fast-game` migration adds `GameState` without discarding the original v1 roll objects.
 
-For local development, use a gitignored `.dev.vars` containing the secrets and local configuration, then `npm run dev`. A public HTTPS endpoint is needed for Telegram webhook testing.
+## Independent verification
 
-## Verify independently
-
-The group reply includes a `/proof/<64-hex-request-id>` URL. Download its JSON while it is retained, or give the URL to the verifier:
+For a fast proof:
 
 ```bash
-npm run verify -- https://YOUR-DICE-WORKER.workers.dev/proof/REQUEST_ID \
+npm run verify -- proof.json \
+  --commitment COMMITMENT_COPIED_FROM_THE_PREVIOUS_CHAT_MESSAGE \
+  --chat-id ORIGINAL_CHAT_ID \
+  --message-id ORIGINAL_MESSAGE_ID
+```
+
+The commitment argument matters: validating only operator-hosted JSON proves internal consistency, not that the secret was committed before the request. The verifier also accepts a proof URL.
+
+For `/rollproof`, the previous v1 arguments still apply:
+
+```bash
+npm run verify -- proof.json \
   --commitment COMMITMENT_FROM_GROUP_MESSAGE \
   --expression 2d6+3 \
   --requested-at ORIGINAL_COMMAND_UNIX_TIMESTAMP \
   --announced-at COMMITMENT_MESSAGE_UNIX_TIMESTAMP \
   --chat-id ORIGINAL_CHAT_ID \
-  --message-id ORIGINAL_COMMAND_MESSAGE_ID
+  --message-id ORIGINAL_MESSAGE_ID
 ```
 
-For downloaded JSON, replace the URL with its local filename. Copy expected values from the Telegram messages, not from the bot's proof JSON. Exact timestamps and message IDs can be obtained from a Telegram export/API client. Chat/message IDs are optional for the verifier, but required to check that the opaque request ID belongs to that exact Telegram request. The verifier checks the signature locally and needs no relay connection when given a saved proof.
+## Limits and storage
 
-`validateProof` checks the protocol/chain, canonical receipt, fixed round, announcement deadline, beacon signature, rejection-sampled dice, and total. It exits nonzero on any mismatch.
-
-## Protocol v1
-
-Pinned network:
-
-- Chain: `52db9ba70e0cc0f6eaf7803dd07447a1f5477735fd3f661792ba94600c84e971`.
-- Scheme: `bls-unchained-g1-rfc9380`.
-- Genesis: 1692803367 Unix seconds; period: three seconds.
-- Group public key is pinned in `src/core.mjs`; relay-supplied keys are never trusted.
-
-Request ID is SHA-256 of UTF-8 compact JSON:
-
-```text
-["telegram-dice-request-v1", chat_id, message_id]
-```
-
-Commitment is SHA-256 of UTF-8 compact JSON:
-
-```text
-["telegram-dice-drand-v1", chain_hash, request_id, requested_at, normalized_expression, round]
-```
-
-Dice block at counter 0, 1, ... is SHA-256 of UTF-8 compact JSON:
-
-```text
-["telegram-dice-drand-v1", "dice", commitment, randomness_hex, counter]
-```
-
-Take eight big-endian uint32 words per block. For sides S, accept only words below floor(2^32/S) × S; each face is word % S + 1. Stop at the requested dice count, sum, then add the modifier. Exhaustion fails closed.
-
-## Storage and limits
-
-One Durable Object per roll holds internal chat/message IDs and the public proof. Public JSON excludes raw chat IDs and user identities, but expressions/timestamps/results can reveal activity. The proof URL is a bearer link and is not private to the group. Anyone who knows original chat/message IDs can recompute it.
-
-Proofs expire after **30 days**. Rate limiting allows 12 distinct commands per chat in a rolling minute. Unrelated traffic is ignored. Alarms use bounded retries; after 12 failures the record reports failure and retains any computed proof. Expired webhook requests are acknowledged and ignored rather than assigned a fresh round.
+- Dice: 1–100 dice, 2–1,000,000 sides, modifier ±100,000.
+- Wheels: 2–32 unique outcomes, each weight 1–1,000,000, total weight ≤10,000,000.
+- Rate limit: 30 distinct bot commands per chat per rolling minute.
+- Proof/state retention for per-roll objects: 30 days.
+- Public proof JSON excludes raw chat IDs and user identities.
 
 ## Validation status
 
-The implementation includes Node tests for parsing, round boundaries, unbiased sampling, receipt tampering, deadlines, drand's independent RFC9380 fixture, malformed beacons, webhook authentication, duplicate admission, retained proofs, delivery failures, and rate limits.
+Authoring checks completed for the new fast core:
 
-During authoring, six protocol checks passed in an isolated JavaScript harness using an independent SHA-256 implementation validated against standard vectors. Five state-machine checks passed with mocked HTTP, storage, and time. Module bodies passed syntax parsing.
+- `node --check` on `core.mjs`, `beacon.mjs`, and `verify-roll.mjs`;
+- Node TypeScript syntax transform check on `src/index.ts`;
+- strict TypeScript `--noEmit` check against the repository tsconfig shape;
+- eight pure protocol tests, including 20/80 wheel parsing, wheel-version hashing, fast committed-secret verification, tamper rejection, legacy dice sampling, and future-drand receipt behavior.
 
-**Pending before deployment:** the actual Node suite, TypeScript typecheck, Wrangler dry run, a valid production quicknet beacon fixture, and a live Telegram/Cloudflare smoke test including BLS CPU usage. The authoring environment had no shell, installed packages, Cloudflare credentials, or callable Telegram connection. Harness checks do not replace these integration checks.
+Still required before relying on a production deployment: run the repository's complete `npm ci && npm run check && npm run build:check`, then smoke-test the actual Telegram webhook, Durable Object migration, group-admin lookup, drand latency/fallback behavior, and Cloudflare CPU usage in the deployed Worker.

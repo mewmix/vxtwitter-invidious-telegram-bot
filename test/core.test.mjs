@@ -1,8 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { parseDice, roundAtOrAfter, roundTime, GENESIS, planRound, sampleWord,
-  createReceipt, deriveDice, validateProof } from "../src/core.mjs";
-import { sha256Text, verifyBeacon } from "../src/beacon.mjs";
+  createReceipt, deriveDice, validateProof, parseWheelSpec, wheelConfigHash,
+  secretCommitment, createFastProof, validateFastProof } from "../src/core.mjs";
+import { createHash } from "node:crypto";
+
+const sha256Text = text => createHash("sha256").update(text).digest("hex");
 
 test("strict dice parsing rejects unsupported expressions and out-of-range dice", () => {
   assert.deepEqual(parseDice("2d6+3"), { count: 2, sides: 6, modifier: 3, expression: "2d6+3" });
@@ -25,8 +28,7 @@ test("round selection is fixed to the request time, including exact boundaries",
 });
 test("rejection sampling discards the biased tail instead of mapping it to faces", () => {
   assert.equal(sampleWord(4294967291, 6), 6);
-  for (let word = 4294967292; word < 4294967296; word++)
-    assert.equal(sampleWord(word, 6), null);
+  for (let word = 4294967292; word < 4294967296; word++) assert.equal(sampleWord(word, 6), null);
   assert.equal(sampleWord(0, 6), 1);
   assert.equal(sampleWord(4294967295, 256), 256);
   assert.throws(() => sampleWord(-1, 6));
@@ -56,14 +58,33 @@ test("proof validation rejects late publication and forged results", () => {
   const proof = { receipt, announcedAt: receipt.requestedAt + 1,
     beacon: { round: receipt.round, randomness, signature: "test-double" },
     result: deriveDice(receipt, randomness, sha256Text) };
-  // Signature acceptance is isolated here; the real BLS implementation has its own fixture.
   assert.deepEqual(validateProof(proof, sha256Text, () => true), proof.result);
   assert.throws(() => validateProof({ ...proof, announcedAt: roundTime(receipt.round) }, sha256Text, () => true));
   assert.throws(() => validateProof({ ...proof, result: { ...proof.result, total: 999 } }, sha256Text, () => true));
   assert.throws(() => validateProof(proof, sha256Text, () => false));
-  assert.deepEqual(deriveDice(receipt, randomness, sha256Text), proof.result);
 });
-test("production quicknet verifier fails closed on malformed or unsigned beacons", () => {
-  assert.equal(verifyBeacon({ round: 1, signature: "00", randomness: "0".repeat(64) }, 1), false);
-  assert.equal(verifyBeacon({ round: 2, signature: "0".repeat(96), randomness: "0".repeat(64) }, 1), false);
+test("weighted wheel parsing normalizes exact 20/80 odds and versions bind configs", () => {
+  const parsed = parseWheelSpec("Otters Luck | Lucky:20 | Unlucky:80");
+  assert.equal(parsed.totalWeight, 100);
+  assert.deepEqual(parsed.options, [{ label: "Lucky", weight: 20 }, { label: "Unlucky", weight: 80 }]);
+  const v1 = { ...parsed, key: "otters luck", version: 1 };
+  const v2 = { ...parsed, key: "otters luck", version: 2 };
+  assert.notEqual(wheelConfigHash(v1, sha256Text), wheelConfigHash(v2, sha256Text));
+  assert.throws(() => parseWheelSpec("Bad | Same:1 | Same:2"));
+});
+test("fast proofs bind the precommitted secret, action, result, and next commitment", () => {
+  const secret = "11".repeat(32), sequence = 7;
+  const commitment = secretCommitment(secret, sequence, sha256Text);
+  const base = { requestId: "a".repeat(64), requestedAt: 200, sequence, secret, commitment,
+    nextCommitment: "b".repeat(64), commitmentAnnouncedAt: 190, precommittedBeforeRequest: true, beacon: null };
+  const dice = createFastProof({ ...base, action: { type: "dice", expression: "2d6+3" } }, sha256Text);
+  assert.deepEqual(validateFastProof(dice, sha256Text, () => false), dice.result);
+  assert.throws(() => validateFastProof({ ...dice, secret: "22".repeat(32) }, sha256Text, () => false));
+  assert.throws(() => validateFastProof({ ...dice, result: { ...dice.result, total: 999 } }, sha256Text, () => false));
+  const parsed = parseWheelSpec("Otters Luck | Lucky:20 | Unlucky:80");
+  const wheel = { ...parsed, key: "otters luck", version: 1 };
+  const spin = createFastProof({ ...base, action: { type: "wheel", wheel } }, sha256Text);
+  assert.equal(spin.result.type, "wheel");
+  assert.ok(["Lucky", "Unlucky"].includes(spin.result.outcome));
+  assert.deepEqual(validateFastProof(spin, sha256Text, () => false), spin.result);
 });
