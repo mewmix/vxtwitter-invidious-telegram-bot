@@ -60,6 +60,7 @@ export interface FastRecord {
   createdAt: number;
   attempts: number;
   busyAttempts: number;
+  verbose?: boolean;
   action: { type: "dice"; expression: string } | { type: "wheel"; wheel: Wheel };
   failure?: string;
   proof?: ReturnType<typeof createFastProof>;
@@ -79,13 +80,14 @@ export interface PendingEntropy {
 export const RETENTION_MS = 30 * 86400 * 1000;
 export const MAX_ATTEMPTS = 12;
 
-export async function telegram<T>(env: Env, method: string, body: object): Promise<T> {
+export async function telegram<T>(env: Env, method: string, body: object, timeoutMs = 6000): Promise<T> {
   const response = await fetch("https://api.telegram.org/bot" + env.TELEGRAM_TOKEN + "/" + method, {
     method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify(body), signal: AbortSignal.timeout(6000),
+    body: JSON.stringify(body), signal: AbortSignal.timeout(timeoutMs),
   });
   const payload = await response.json() as { ok: boolean; result: T; description?: string };
-  if (!response.ok || !payload.ok) throw new Error("Telegram API failed");
+  if (!response.ok || !payload.ok)
+    throw new Error(`Telegram ${method} failed: ${payload.description ?? response.statusText}`);
   return payload.result;
 }
 export function stub(namespace: Namespace, name: string) {

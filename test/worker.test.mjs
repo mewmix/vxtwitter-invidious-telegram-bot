@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import worker, { DiceRoll, ChatGate, GameState } from "../src/index.ts";
+import { fastResultText } from "../src/roll-state.ts";
 import { createReceipt, planRound, deriveDice } from "../src/core.mjs";
 import { sha256Text } from "../src/beacon.mjs";
 
@@ -74,6 +75,108 @@ test("GameState versions named weighted wheels and preserves exact weights", asy
   assert.deepEqual(second.options, [{ label: "Lucky", weight: 35 }, { label: "Unlucky", weight: 65 }]);
   const fetched = await (await game.fetch(inputRequest({ op: "wheelGet", name: "otters luck" }))).json();
   assert.equal(fetched.wheel.version, 2);
+});
+
+test("compact rolls keep unpublished commitments honest until verbose mode resumes", async () => {
+  const game = new GameState({ storage: new MemoryStorage() });
+  assert.deepEqual(await (await game.fetch(inputRequest({ op: "verboseGet" }))).json(), { verbose: false });
+  const first = await (await game.fetch(inputRequest({ op: "allocate", requestId: "a".repeat(64),
+    allowUnannounced: true }))).json();
+  assert.equal(first.commitmentAnnouncedAt, undefined);
+  assert.equal((await game.fetch(inputRequest({ op: "ack", requestId: first.requestId,
+    nextCommitment: first.nextCommitment, announcedAt: 100, published: false }))).status, 200);
+  const next = await game.fetch(inputRequest({ op: "allocate", requestId: "b".repeat(64) }));
+  assert.equal(next.status, 428);
+  assert.equal((await game.fetch(inputRequest({ op: "bootstrapAck", commitment: first.nextCommitment,
+    announcedAt: 110 }))).status, 200);
+  const resumed = await (await game.fetch(inputRequest({ op: "allocate", requestId: "b".repeat(64) }))).json();
+  assert.equal(resumed.commitmentAnnouncedAt, 110);
+  assert.equal((await game.fetch(inputRequest({ op: "verboseSet", verbose: true }))).status, 200);
+  assert.deepEqual(await (await game.fetch(inputRequest({ op: "verboseGet" }))).json(), { verbose: true });
+});
+
+test("compact fast results show only the roll while verbose mode restores proof details", () => {
+  const record = { requestId: "a".repeat(64), verbose: false, proof: {
+    result: { type: "dice", expression: "1d20", values: [3], modifier: 0, total: 3 },
+    beacon: null, precommittedBeforeRequest: false, sequence: 1,
+    nextCommitment: "b".repeat(64),
+  } };
+  assert.equal(fastResultText(env, record), "🎲 1d20 rolls...\n✨ 3!");
+  record.verbose = true;
+  assert.match(fastResultText(env, record), /Proof: https:\/\/dice\.test\/proof\/a{64}/);
+  assert.doesNotMatch(fastResultText(env, record), /\[3\] = 3/);
+});
+
+test("private chat can toggle verbose mode through the webhook", async t => {
+  const { calls } = setup(t);
+  const game = new GameState({ storage: new MemoryStorage() });
+  const gameNamespace = { idFromName: name => name, get: () => ({ fetch: request => game.fetch(request) }) };
+  const localEnv = { ...env, GAME: gameNamespace, CHAT_GATE: dummyNamespace };
+  const request = (text, messageId) => new Request("https://dice.test/webhook", {
+    method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "secret" },
+    body: JSON.stringify({ update_id: messageId, message: {
+      message_id: messageId, date: Math.floor(Date.now() / 1000), chat: { id: 123 }, from: { id: 123 }, text,
+    } }),
+  });
+  assert.equal((await worker.fetch(request("/verbose on", 1), localEnv)).status, 200);
+  assert.equal(calls.at(-1).text, "🎛️ Verbose roll details are on for this chat.");
+  assert.equal((await worker.fetch(request("/verbose off", 2), localEnv)).status, 200);
+  assert.equal(calls.at(-1).text, "🎛️ Verbose roll details are off for this chat.");
+});
+
+test("all dice commands default to a d20 when no expression is supplied", async () => {
+  const game = new GameState({ storage: new MemoryStorage() });
+  const records = [];
+  const gameNamespace = { idFromName: name => name, get: () => ({ fetch: request => game.fetch(request) }) };
+  const rollNamespace = { idFromName: name => name, get: () => ({ fetch: async request => {
+    records.push(await request.json());
+    return Response.json({ ok: true });
+  } }) };
+  const localEnv = { ...env, GAME: gameNamespace, ROLLS: rollNamespace, CHAT_GATE: dummyNamespace };
+  for (const [index, command] of ["/roll", "/dice", "/rollproof"].entries()) {
+    const request = new Request("https://dice.test/webhook", {
+      method: "POST", headers: { "X-Telegram-Bot-Api-Secret-Token": "secret" },
+      body: JSON.stringify({ update_id: index + 1, message: {
+        message_id: index + 1, date: Math.floor(Date.now() / 1000),
+        chat: { id: 123 }, from: { id: 123 }, text: command,
+      } }),
+    });
+    assert.equal((await worker.fetch(request, localEnv)).status, 200);
+  }
+  assert.deepEqual(records.map(record => record.mode === "fast" ? record.action.expression : record.receipt.expression),
+    ["1d20", "1d20", "1d20"]);
+});
+
+test("compact roll sends typing and one result without claiming a public commitment", async t => {
+  const originalFetch = globalThis.fetch;
+  const methods = [];
+  globalThis.fetch = async (url, init) => {
+    if (!String(url).startsWith("https://api.telegram.org/bot")) throw new Error("drand unavailable");
+    methods.push({ method: String(url).split("/").at(-1), body: JSON.parse(init.body) });
+    return Response.json({ ok: true, result: { message_id: 100 + methods.length,
+      date: Math.floor(Date.now() / 1000) } });
+  };
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const game = new GameState({ storage: new MemoryStorage() });
+  const gameNamespace = { idFromName: name => name, get: () => ({ fetch: request => game.fetch(request) }) };
+  const rollStore = new MemoryStorage();
+  const roll = new DiceRoll({ storage: rollStore }, { ...env, GAME: gameNamespace });
+  const record = { mode: "fast", requestId: "c".repeat(64), requestedAt: Math.floor(Date.now() / 1000),
+    chatId: 123, messageId: 7, stage: "fast-allocate", createdAt: Date.now(),
+    attempts: 0, busyAttempts: 0, verbose: false, action: { type: "dice", expression: "1d20" } };
+  assert.equal((await roll.fetch(inputRequest(record))).status, 200);
+  await roll.alarm();
+  const saved = await rollStore.get("roll");
+  assert.equal(saved.stage, "done");
+  assert.deepEqual(methods.map(call => call.method), ["sendChatAction", "sendMessage"]);
+  const total = saved.proof.result.total;
+  const outcome = total === 20 ? "🔥 Natural 20!" : total === 1 ? "💥 Natural 1!" : `✨ ${total}!`;
+  assert.equal(methods[1].body.text, `🎲 1d20 rolls...\n${outcome}`);
+  assert.doesNotMatch(methods[1].body.text, /Proof:|Commitment:|\[/);
+  const status = await (await game.fetch(inputRequest({ op: "status" }))).json();
+  assert.equal(status.entropy.announced, false);
+  await roll.alarm();
+  assert.equal(methods.length, 2);
 });
 
 test("duplicate delayed admission retains the original receipt and announcement", async t => {

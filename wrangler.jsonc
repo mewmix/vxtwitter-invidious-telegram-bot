@@ -1,14 +1,14 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "verifiable-telegram-dice",
+  "name": "telegramtoken3",
   "main": "src/index.ts",
   "compatibility_date": "2026-08-16",
   "observability": {
     "enabled": true
   },
   "vars": {
-    "BOT_USERNAME": "REPLACE_WITH_NEW_BOT_USERNAME",
-    "PUBLIC_BASE_URL": "https://REPLACE_WITH_DICE_WORKER.workers.dev"
+    "BOT_USERNAME": "realityrulebot",
+    "PUBLIC_BASE_URL": "https://telegramtoken3.alexanderjamesklein.workers.dev"
   },
   "durable_objects": {
     "bindings": [

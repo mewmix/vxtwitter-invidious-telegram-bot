@@ -1,6 +1,6 @@
 # Verifiable Telegram dice + weighted wheels on Cloudflare Workers
 
-This branch is a standalone Telegram tabletop-game bot. It keeps the original future-drand proof mode, but normal play now uses an instant precommitment chain so `/roll` and weighted-wheel spins do not wait for a future beacon.
+This branch is a standalone Telegram tabletop-game bot. It keeps the original future-drand proof mode, while normal `/roll` and weighted-wheel spins return quickly. Compact results are the default; `/verbose on` adds proof and commitment details.
 
 ## Chat commands
 
@@ -8,10 +8,14 @@ Dice:
 
 ```text
 /roll
-/roll d20
+/dice
 /roll 2d6+3
-/rollproof 2d6+3     # older ~60s future-drand protocol
+/rollproof            # older ~60s future-drand protocol
+/verbose on          # show proof details in fast results
+/verbose off         # show only the result (default)
 ```
+
+`/roll`, `/dice`, and `/rollproof` roll a d20 when no expression is supplied.
 
 Weighted wheels:
 
@@ -24,7 +28,7 @@ Weighted wheels:
 /wheel delete Otters Luck
 ```
 
-`create`, `set`/`difficulty`, `delete`, and entropy resets are restricted to Telegram group administrators. In a private chat the user is allowed to manage the wheel.
+`create`, `set`/`difficulty`, `delete`, verbosity changes, and entropy resets are restricted to Telegram group administrators. In a private chat the user can change these settings.
 
 The parser also understands `Wheelbot spin Otters Luck wheel` and `<BOT_USERNAME> spin Otters Luck wheel` when Telegram actually delivers that plain-text message to the bot. Slash commands remain the reliable group interface when BotFather privacy mode is enabled.
 
@@ -34,10 +38,10 @@ Wheel weights are relative integers, not required to sum to 100. `20/80`, `2/8`,
 
 Fast gameplay uses two independent ingredients when available:
 
-1. A 256-bit secret from Cloudflare Workers `crypto.getRandomValues()` whose SHA-256 commitment was already published in the chat by the preceding initialization/result message.
+1. A 256-bit secret from Cloudflare Workers `crypto.getRandomValues()`. In verbose mode, its SHA-256 commitment is published in the chat before a later request can use it.
 2. The first quickly reachable **locally verified** latest drand quicknet beacon. The three configured relays are queried in parallel with a 1.2-second deadline. If none responds and verifies in time, the roll continues from the precommitted Worker secret alone and the proof explicitly records `beacon: null`.
 
-The chain works like this:
+The publicly verifiable chain in verbose mode works like this:
 
 ```text
 Telegram publishes commitment N
@@ -54,11 +58,11 @@ Worker reveals secret N in proof
 Telegram result publishes commitment N+1
 ```
 
-A `GameState` Durable Object serializes the chain per chat. It will not allocate the next secret until Telegram has acknowledged publication of its commitment. A concurrent roll waits and retries against the same state instead of skipping to another secret. A webhook retry for the same original message addresses the same `DiceRoll` Durable Object and therefore does not redraw.
+A `GameState` Durable Object serializes the chain per chat. It will not allocate the next secret until Telegram has acknowledged the preceding result. A concurrent roll waits and retries against the same state instead of skipping to another secret. A webhook retry for the same original message addresses the same `DiceRoll` Durable Object and therefore does not redraw.
 
-The first roll in a chat can bootstrap automatically, but its proof is marked `precommittedBeforeRequest: false` because no public commitment existed before that first request. Run `/start` before play if you want the first real roll to be precommitted too.
+Compact results show only the outcome and do not publish the next commitment. Their stored proofs mark an unpublished commitment as `precommittedBeforeRequest: false`. After `/verbose on`, the bot publishes the current commitment before the next proof-bearing result. Run `/start` before play in verbose mode if you want the first real roll to be precommitted too.
 
-Every fast result includes:
+Verbose fast results include:
 
 - sequence number;
 - whether its commitment predates the request;
@@ -68,7 +72,7 @@ Every fast result includes:
 
 The revealed 256-bit secret is in the proof JSON rather than cluttering the chat message. An independent verifier checks that it hashes to the previously published commitment, verifies drand when present, re-derives the seed, performs rejection sampling, and reproduces the dice/wheel outcome.
 
-This proves consistency with a previously published Worker commitment. It does **not** attest that Cloudflare's underlying CSPRNG is a physical TRNG, nor can it prove that the bot operator never suppresses a result. `/entropy reset` is intentionally noisy and publishes a new chain root instead of silently skipping a stuck value.
+When a commitment was published before the request, this proves consistency with that Worker commitment. Compact rolls do not make that timing claim. The proof does **not** attest that Cloudflare's underlying CSPRNG is a physical TRNG, nor can it prove that the bot operator never suppresses a result. `/entropy reset` is intentionally noisy and publishes a new chain root instead of silently skipping a stuck value.
 
 ## Entropy-chain administration
 
@@ -96,14 +100,14 @@ npm run build:check
 npx wrangler login
 ```
 
-Set `BOT_USERNAME` and `PUBLIC_BASE_URL` in `wrangler.jsonc`, then add the new bot's secrets:
+`wrangler.jsonc` targets the `telegramtoken3` Worker and `@realityrulebot`. Add the bot's secrets from the local, gitignored files:
 
 ```bash
-npx wrangler secret put TELEGRAM_TOKEN
-openssl rand -hex 32 > telegram-webhook-secret
-npx wrangler secret put TELEGRAM_WEBHOOK_SECRET < telegram-webhook-secret
+npx wrangler secret put TELEGRAM_TOKEN < telegram-token3
+npx wrangler secret put TELEGRAM_WEBHOOK_SECRET < telegram-webhook-secret3
 npm run deploy
-npm run set-webhook -- https://YOUR-DICE-WORKER.workers.dev
+TELEGRAM_TOKEN_FILE=telegram-token3 TELEGRAM_WEBHOOK_SECRET_FILE=telegram-webhook-secret3 \
+  npm run set-webhook -- https://telegramtoken3.alexanderjamesklein.workers.dev
 ```
 
 `ROLLS`, `CHAT_GATE`, and `GAME` are SQLite-backed Durable Objects. The `v2-fast-game` migration adds `GameState` without discarding the original v1 roll objects.

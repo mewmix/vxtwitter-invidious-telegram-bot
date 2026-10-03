@@ -1,9 +1,9 @@
 import { createFastProof, deriveDice, planRound } from "./core.mjs";
 import { fetchBeacon, fetchLatestBeacon, sha256Text } from "./beacon.mjs";
-import { gameCall, internal, MAX_ATTEMPTS, proofUrl, RETENTION_MS, stub, telegram } from "./shared";
-import type { Beacon, Env, FastRecord, PendingEntropy, RecordState, SlowRecord, State } from "./shared";
+import { gameCall, internal, MAX_ATTEMPTS, proofUrl, RETENTION_MS, stub, telegram } from "./shared.ts";
+import type { Beacon, Env, FastRecord, PendingEntropy, RecordState, SlowRecord, State } from "./shared.ts";
 
-function fastResultText(env: Env, record: FastRecord) {
+export function fastResultText(env: Env, record: FastRecord) {
   const proof = record.proof!;
   const result = proof.result as ({ type: "dice"; expression: string; values: number[]; modifier: number; total: number } |
     { type: "wheel"; name: string; version: number; outcome: string; weight: number; totalWeight: number; ticket: number });
@@ -11,14 +11,18 @@ function fastResultText(env: Env, record: FastRecord) {
   const timing = proof.precommittedBeforeRequest ? "precommitted before request" : "bootstrap commitment";
   let first: string;
   if (result.type === "dice") {
-    first = "🎲 " + result.expression + " → [" + result.values.join(", ") + "]" +
-      (result.modifier ? " " + (result.modifier > 0 ? "+" : "") + result.modifier : "") + " = " + result.total;
+    const outcome = result.expression === "1d20" && result.values[0] === 20 ? "🔥 Natural 20!" :
+      result.expression === "1d20" && result.values[0] === 1 ? "💥 Natural 1!" :
+      "✨ " + result.total + "!";
+    first = "🎲 " + result.expression + " rolls...\n" + outcome;
   } else {
-    const pct = result.weight * 100 / result.totalWeight;
-    first = "🎡 " + result.name + " → " + result.outcome +
-      "\nOdds: " + (Number.isInteger(pct) ? pct : Number(pct.toFixed(2))) + "%";
+    first = "🎡 " + result.name + " spins...\n✨ " + result.outcome + "!";
   }
-  return first + "\nEntropy: " + timing + " + " + drand +
+  if (record.verbose !== true) return first;
+  const details = result.type === "dice" && result.values.length > 1 ?
+    "\nDice: " + result.values.join(" + ") + (result.modifier ? " " + (result.modifier > 0 ? "+ " : "- ") + Math.abs(result.modifier) : "") :
+    result.type === "wheel" ? "\nOdds: " + Number((result.weight * 100 / result.totalWeight).toFixed(2)) + "%" : "";
+  return first + details + "\nEntropy: " + timing + " + " + drand +
     "\nSequence: " + proof.sequence + "\nNext commitment: " + proof.nextCommitment +
     "\nProof: " + proofUrl(env, record.requestId);
 }
@@ -65,7 +69,14 @@ export class DiceRoll {
   private async fastAlarm(record: FastRecord): Promise<void> {
     try {
       if (record.stage === "fast-allocate") {
-        let allocationResponse = await gameCall(this.env, record.chatId, { op: "allocate", requestId: record.requestId });
+        if (record.attempts === 0 && record.busyAttempts === 0) {
+          try { await telegram(this.env, "sendChatAction", {
+            chat_id: record.chatId, message_thread_id: record.threadId, action: "typing",
+          }, 1200); } catch { /* Cosmetic action must not delay or fail a roll. */ }
+        }
+        let allocationResponse = await gameCall(this.env, record.chatId, {
+          op: "allocate", requestId: record.requestId, allowUnannounced: record.verbose !== true,
+        });
         if (allocationResponse.status === 428) {
           const bootstrap = await allocationResponse.json() as { commitment: string; sequence: number };
           const ack = await telegram<{ message_id: number; date: number }>(this.env, "sendMessage", {
@@ -113,7 +124,8 @@ export class DiceRoll {
         text: fastResultText(this.env, record), link_preview_options: { is_disabled: true },
       });
       const chainAck = await gameCall(this.env, record.chatId, { op: "ack", requestId: record.requestId,
-        nextCommitment: record.proof!.nextCommitment, announcedAt: ack.date });
+        nextCommitment: record.proof!.nextCommitment, announcedAt: ack.date,
+        published: record.verbose === true });
       if (!chainAck.ok) throw new Error("Next commitment acknowledgement failed");
       record.stage = "done";
       await this.ctx.storage.transaction(async tx => {
@@ -196,7 +208,8 @@ export class DiceRoll {
         await tx.put("roll", record);
         await tx.setAlarm(record.createdAt + RETENTION_MS);
       });
-    } catch {
+    } catch (error) {
+      console.error("Delayed roll retry", error);
       record.attempts++;
       if (record.attempts >= MAX_ATTEMPTS || (record.stage === "announce" && Date.now() / 1000 > deadline)) {
         await this.fail(record, record.proof ? "Result calculated and proof retained; Telegram delivery failed."
@@ -224,4 +237,3 @@ export class DiceRoll {
     } catch { /* Durable record already stores the failure. */ }
   }
 }
-

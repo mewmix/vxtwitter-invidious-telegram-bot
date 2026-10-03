@@ -1,26 +1,28 @@
 import { createReceipt, parseDice, planRound, PROTOCOL, FAST_PROTOCOL, wheelConfigHash } from "./core.mjs";
 import { sha256Text } from "./beacon.mjs";
-import { gameCall, internal, stub, telegram } from "./shared";
-import type { Env, Message, State, Wheel } from "./shared";
-export { GameState } from "./game-state";
-export { DiceRoll } from "./roll-state";
+import { gameCall, internal, stub, telegram } from "./shared.ts";
+import type { Env, Message, State, Wheel } from "./shared.ts";
+export { GameState } from "./game-state.ts";
+export { DiceRoll } from "./roll-state.ts";
 
 const HELP = [
-  "🎲 Fast dice: /roll, /roll d20, /roll 2d6+3",
+  "🎲 Fast dice: /roll or /dice rolls a d20; try /roll 2d6+3 for another expression.",
   "🎡 Wheel: /wheel spin Otters Luck",
   "Create: /wheel create Otters Luck | Lucky:20 | Unlucky:80",
   "Change odds: /wheel set Otters Luck | Lucky:35 | Unlucky:65",
   "Other: /wheel list, /wheel show NAME, /wheel delete NAME",
   "🔐 /entropy status; /entropy reset is admin-only.",
-  "🧪 /rollproof 2d6+3 keeps the older ~60s future-drand proof mode.",
-  "Fast rolls reveal a previously committed Worker secret and mix in a verified recent drand beacon when one is reachable quickly.",
+  "🎛️ /verbose on or /verbose off controls proof details in fast results (admin-only in groups).",
+  "🧪 /rollproof rolls a d20 with the older ~60s future-drand proof mode.",
+  "Fast rolls use Worker entropy and a verified recent drand beacon when one is reachable quickly. Turn on verbose mode to publish commitments for verification.",
 ].join("\n");
+const DEFAULT_DICE = "1d20";
 
 function escapeRegExp(value: string) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 function command(text: string, username: string): { name: string; argument: string } | null {
-  const match = /^\/(roll|dice|rollproof|wheel|entropy|help|start)(?:@([A-Za-z0-9_]+))?(?:\s+(.+))?$/i.exec(text.trim());
+  const match = /^\/(roll|dice|rollproof|wheel|entropy|verbose|help|start)(?:@([A-Za-z0-9_]+))?(?:\s+(.+))?$/i.exec(text.trim());
   if (match) {
     if (match[2] && match[2].toLowerCase() !== username.toLowerCase()) return null;
     return { name: match[1].toLowerCase(), argument: match[3]?.trim() ?? "" };
@@ -34,6 +36,11 @@ async function isAdmin(env: Env, msg: Message) {
   if (!Number.isSafeInteger(msg.from?.id)) return false;
   const member = await telegram<{ status: string }>(env, "getChatMember", { chat_id: msg.chat.id, user_id: msg.from!.id });
   return member.status === "creator" || member.status === "administrator";
+}
+async function chatVerbose(env: Env, chatId: number): Promise<boolean> {
+  const response = await gameCall(env, chatId, { op: "verboseGet" });
+  if (!response.ok) throw new Error("Could not read chat settings");
+  return (await response.json() as { verbose: boolean }).verbose;
 }
 function wheelText(wheel: Wheel) {
   return wheel.name + " v" + wheel.version + "\n" + wheel.options.map(option => {
@@ -128,10 +135,12 @@ async function handleWheel(env: Env, msg: Message, argument: string, requestId: 
   const response = await gameCall(env, msg.chat.id, { op: "wheelGet", name: rest.replace(/\s+wheel$/i, "") });
   const data = await response.json() as { wheel?: Wheel; error?: string };
   if (!response.ok || !data.wheel) throw new Error(data.error ?? "Wheel not found");
+  const verbose = await chatVerbose(env, msg.chat.id);
   const roll = await stub(env.ROLLS, requestId).fetch(internal("POST", {
     mode: "fast", requestId, requestedAt: msg.date, chatId: msg.chat.id, messageId: msg.message_id,
     threadId: msg.message_thread_id, stage: "fast-allocate", createdAt: Date.now(), attempts: 0, busyAttempts: 0,
     action: { type: "wheel", wheel: data.wheel },
+    verbose,
   }));
   if (!roll.ok && roll.status !== 409) throw new Error("Wheel spin admission failed");
 }
@@ -208,12 +217,26 @@ export default {
         }
         throw new Error("Use /entropy status or /entropy reset");
       }
+      if (cmd.name === "verbose") {
+        const action = cmd.argument.trim().toLowerCase();
+        if (action && action !== "status" && action !== "on" && action !== "off")
+          throw new Error("Use /verbose on or /verbose off");
+        if (action === "on" || action === "off") {
+          if (!await isAdmin(env, msg)) throw new Error("Only a group admin can change verbosity");
+          const response = await gameCall(env, msg.chat.id, { op: "verboseSet", verbose: action === "on" });
+          if (!response.ok) throw new Error("Could not save chat settings");
+        }
+        const verbose = await chatVerbose(env, msg.chat.id);
+        await telegram(env, "sendMessage", { chat_id: msg.chat.id, message_thread_id: msg.message_thread_id,
+          text: "🎛️ Verbose roll details are " + (verbose ? "on" : "off") + " for this chat." });
+        return Response.json({ ok: true });
+      }
       if (cmd.name === "wheel") {
         await handleWheel(env, msg, cmd.argument, id);
         return Response.json({ ok: true });
       }
       if (cmd.name === "rollproof") {
-        const dice = parseDice(cmd.argument || "1d6");
+        const dice = parseDice(cmd.argument || DEFAULT_DICE);
         if (Date.now() / 1000 > planRound(msg.date).deadline) return Response.json({ ok: true, expired: true });
         const receipt = createReceipt(id, msg.date, dice.expression, sha256Text);
         const response = await stub(env.ROLLS, id).fetch(internal("POST", {
@@ -223,11 +246,13 @@ export default {
         if (!response.ok && response.status !== 409) throw new Error("Delayed roll admission failed");
         return Response.json({ ok: true });
       }
-      const dice = parseDice(cmd.argument || "1d6");
+      const dice = parseDice(cmd.argument || DEFAULT_DICE);
+      const verbose = await chatVerbose(env, msg.chat.id);
       const response = await stub(env.ROLLS, id).fetch(internal("POST", {
         mode: "fast", requestId: id, requestedAt: msg.date, chatId: msg.chat.id, messageId: msg.message_id,
         threadId: msg.message_thread_id, stage: "fast-allocate", createdAt: Date.now(), attempts: 0, busyAttempts: 0,
         action: { type: "dice", expression: dice.expression },
+        verbose,
       }));
       if (!response.ok && response.status !== 409) throw new Error("Fast roll admission failed");
       return Response.json({ ok: true });

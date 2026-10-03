@@ -1,6 +1,6 @@
 import { parseWheelSpec, secretCommitment, wheelKey } from "./core.mjs";
 import { sha256Text } from "./beacon.mjs";
-import type { PendingEntropy, State, Wheel } from "./shared";
+import type { PendingEntropy, State, Wheel } from "./shared.ts";
 
 interface EntropyState {
   sequence: number;
@@ -56,6 +56,13 @@ export class GameState {
           announced: entropy.announced, announcedAt: entropy.announcedAt } : null,
           pending: pending ? { requestId: pending.requestId, sequence: pending.sequence } : null });
       }
+      case "verboseGet":
+        return Response.json({ verbose: await this.ctx.storage.get<boolean>("verbose") ?? false });
+      case "verboseSet": {
+        if (typeof body.verbose !== "boolean") return Response.json({ error: "Invalid verbose value" }, { status: 400 });
+        await this.ctx.storage.put("verbose", body.verbose);
+        return Response.json({ verbose: body.verbose });
+      }
       case "reset": {
         const sequence = ((await this.ctx.storage.get<EntropyState>("entropy"))?.sequence ?? 0) + 1;
         const secret = randomSecret();
@@ -72,12 +79,8 @@ export class GameState {
           if (pending.requestId === body.requestId) return Response.json(pending);
           return Response.json({ error: "Previous result is still publishing" }, { status: 409 });
         }
-        const entropy = await this.ctx.storage.get<EntropyState>("entropy");
-        if (!entropy) {
-          const created = await this.bootstrap();
-          return Response.json({ bootstrap: true, sequence: created.sequence, commitment: created.commitment }, { status: 428 });
-        }
-        if (!entropy.announced || !Number.isSafeInteger(entropy.announcedAt))
+        const entropy = await this.bootstrap();
+        if ((!entropy.announced || !Number.isSafeInteger(entropy.announcedAt)) && body.allowUnannounced !== true)
           return Response.json({ bootstrap: true, sequence: entropy.sequence, commitment: entropy.commitment }, { status: 428 });
         const nextSequence = entropy.sequence + 1, nextSecret = randomSecret();
         const nextCommitment = secretCommitment(nextSecret, nextSequence, sha256Text);
@@ -95,7 +98,8 @@ export class GameState {
             !Number.isSafeInteger(body.announcedAt))
           return Response.json({ error: "Allocation acknowledgement mismatch" }, { status: 409 });
         const entropy: EntropyState = { sequence: pending.nextSequence, secret: pending.nextSecret,
-          commitment: pending.nextCommitment, announced: true, announcedAt: body.announcedAt };
+          commitment: pending.nextCommitment, announced: body.published !== false,
+          ...(body.published !== false ? { announcedAt: body.announcedAt } : {}) };
         await this.ctx.storage.transaction(async tx => {
           await tx.put("entropy", entropy);
           await tx.delete("pending");
@@ -143,4 +147,3 @@ export class GameState {
     }
   }
 }
-

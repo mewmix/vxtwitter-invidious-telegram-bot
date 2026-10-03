@@ -4,3 +4,5 @@ node_modules/
 .env
 telegram-token
 telegram-webhook-secret
+telegram-token[0-9]*
+telegram-webhook-secret[0-9]*

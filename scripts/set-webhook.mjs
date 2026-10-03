@@ -9,6 +9,7 @@
 // Credentials are read from local files (gitignored), or env overrides:
 //   telegram-token            -> TELEGRAM_TOKEN
 //   telegram-webhook-secret   -> TELEGRAM_WEBHOOK_SECRET
+//   TELEGRAM_TOKEN_FILE and TELEGRAM_WEBHOOK_SECRET_FILE select alternate files.
 // The secret must match the Worker's TELEGRAM_WEBHOOK_SECRET.
 
 import { readFile } from "node:fs/promises";
@@ -29,10 +30,13 @@ async function readCredential(envValue, fileName) {
 const workerUrl = (process.argv[2] ?? process.env.WORKER_URL ?? "").replace(
   /\/$/,
   "");
-const token = await readCredential(process.env.TELEGRAM_TOKEN, "telegram-token");
+const token = await readCredential(
+  process.env.TELEGRAM_TOKEN,
+  process.env.TELEGRAM_TOKEN_FILE ?? "telegram-token",
+);
 const webhookSecret = await readCredential(
   process.env.TELEGRAM_WEBHOOK_SECRET,
-  "telegram-webhook-secret",
+  process.env.TELEGRAM_WEBHOOK_SECRET_FILE ?? "telegram-webhook-secret",
 );
 
 if (!workerUrl || !token || !webhookSecret) {
