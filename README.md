@@ -93,3 +93,20 @@ The Invidious default remains `https://y.com.sb`, matching the original bot. Ins
 ## Behavior
 
 Twitter/X and Instagram links are handled automatically. YouTube links are converted only when the bot is mentioned, preserving the original bot behavior.
+
+Links in message text and media captions can include `https://` or `http://`,
+or omit the scheme (for example, `twitter.com/JeffJacksonNC/status/2094527969897169014`).
+Telegram `url` entities and formatted `text_link` hyperlinks are also inspected.
+For formatted hyperlinks, the destination determines the rewrite.
+
+Telegram's expanded editor can send `rich_message.blocks` with no `text` or
+`caption`. These rich messages are also scanned, including nested formatting,
+lists, quotes, tables, button links, and media captions. The service rules above
+apply to all message formats.
+
+Run regression tests and type checking with:
+
+```bash
+npm test
+npm run typecheck
+```

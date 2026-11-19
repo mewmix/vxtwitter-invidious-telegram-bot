@@ -7,9 +7,11 @@
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
     "set-webhook": "node scripts/set-webhook.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "node --test"
   },
   "devDependencies": {
+    "esbuild": "^0.28.1",
     "typescript": "^5.9.2",
     "wrangler": "^4.29.1"
   }

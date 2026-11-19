@@ -1,0 +1,21 @@
+{
+  "rich_message": {
+    "blocks": [
+      {
+        "type": "paragraph",
+        "text": [
+          "For ",
+          { "type": "mention", "text": "@reader", "username": "reader" },
+          ", and ",
+          { "type": "mention", "text": "@tester", "username": "tester" },
+          "  ",
+          {
+            "type": "url",
+            "text": "https://x.com/0xMarcB/status/2123108720154726784?a=4BG5dSih1n3wL74m34c&s=19",
+            "url": "https://x.com/0xMarcB/status/2123108720154726784?a=4BG5dSih1n3wL74m34c&s=19"
+          }
+        ]
+      }
+    ]
+  }
+}

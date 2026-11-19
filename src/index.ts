@@ -1,3 +1,6 @@
+import { candidateUrls, type TelegramEntity } from "./urls";
+import { richMessageContent, type TelegramRichMessage } from "./rich-message";
+
 interface Env {
   TELEGRAM_TOKEN: string;
   TELEGRAM_WEBHOOK_SECRET: string;
@@ -16,7 +19,10 @@ interface TelegramMessage {
   chat: { id: number };
   from?: TelegramUser;
   text?: string;
+  entities?: TelegramEntity[];
   caption?: string;
+  caption_entities?: TelegramEntity[];
+  rich_message?: TelegramRichMessage;
 }
 
 interface TelegramUpdate {
@@ -36,7 +42,6 @@ interface TelegramBotInfo {
 
 let cachedBotUsername: string | undefined;
 
-const URL_RE = /https?:\/\/[^\s<>()]+/gi;
 const TWITTER_HOSTS = new Set([
   "twitter.com",
   "www.twitter.com",
@@ -56,24 +61,8 @@ const INSTAGRAM_HOSTS = new Set([
   "m.instagram.com",
 ]);
 
-function candidateUrls(text: string): URL[] {
-  const matches = text.match(URL_RE) ?? [];
-  const urls: URL[] = [];
-
-  for (const match of matches) {
-    const candidate = match.replace(/[),.!?]+$/g, "");
-    try {
-      urls.push(new URL(candidate));
-    } catch {
-      // Ignore malformed URLs and continue scanning the message.
-    }
-  }
-
-  return urls;
-}
-
-function fxTwitterUrl(text: string): string | null {
-  for (const url of candidateUrls(text)) {
+function fxTwitterUrl(urls: URL[]): string | null {
+  for (const url of urls) {
     if (!TWITTER_HOSTS.has(url.hostname.toLowerCase())) continue;
 
     const match = url.pathname.match(/^\/([^/]+)\/status\/(\d+)/i);
@@ -86,8 +75,8 @@ function fxTwitterUrl(text: string): string | null {
   return null;
 }
 
-function instagramUrl(text: string, baseUrl: string): string | null {
-  for (const url of candidateUrls(text)) {
+function instagramUrl(urls: URL[], baseUrl: string): string | null {
+  for (const url of urls) {
     if (!INSTAGRAM_HOSTS.has(url.hostname.toLowerCase())) continue;
 
     return `${baseUrl.replace(/\/$/, "")}${url.pathname}${url.search}${url.hash}`;
@@ -96,8 +85,8 @@ function instagramUrl(text: string, baseUrl: string): string | null {
   return null;
 }
 
-function youtubeVideoId(text: string): string | null {
-  for (const url of candidateUrls(text)) {
+function youtubeVideoId(urls: URL[]): string | null {
+  for (const url of urls) {
     const host = url.hostname.toLowerCase();
 
     if (host === "youtu.be" || host === "www.youtu.be") {
@@ -192,10 +181,16 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   const message = update.message;
   if (!message) return;
 
-  const text = message.text ?? message.caption;
+  const rich = richMessageContent(message.rich_message);
+  const text = [message.text, message.caption, rich.text].filter(Boolean).join("\n");
   if (!text) return;
 
-  const videoId = youtubeVideoId(text);
+  const urls = [
+    ...candidateUrls(message.text ?? "", message.entities),
+    ...candidateUrls(message.caption ?? "", message.caption_entities),
+    ...candidateUrls(rich.text, rich.entities),
+  ];
+  const videoId = youtubeVideoId(urls);
   if (videoId && (await isBotMentioned(text, env))) {
     const baseUrl = (env.INVIDIOUS_BASE_URL ?? "https://y.com.sb").replace(/\/$/, "");
     const invidiousUrl = `${baseUrl}/watch?v=${encodeURIComponent(videoId)}`;
@@ -207,7 +202,7 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
     return;
   }
 
-  const fxUrl = fxTwitterUrl(text);
+  const fxUrl = fxTwitterUrl(urls);
   if (fxUrl) {
     await sendReplacementAndDelete(
       message,
@@ -218,7 +213,7 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   }
 
   const instagram = instagramUrl(
-    text,
+    urls,
     env.INSTAGRAM_BASE_URL ?? "https://oginstagram.com",
   );
   if (!instagram) return;
