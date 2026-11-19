@@ -95,6 +95,12 @@ async function invoke(t, fields, failMethod) {
     assert.equal(new URL(url).origin, "https://api.telegram.org");
     const method = new URL(url).pathname.split("/").pop();
     calls.push({ method, body: JSON.parse(options.body) });
+    if (method === "sendMessage") {
+      const body = calls.at(-1).body;
+      for (const entity of body.entities ?? []) {
+        assert.ok(entity.offset >= 0 && entity.length > 0 && entity.offset + entity.length <= body.text.length);
+      }
+    }
     return method === failMethod
       ? Response.json({ ok: false, description: "simulated failure" }, { status: 400 })
       : Response.json({ ok: true, result: method === "getMe" ? { username: "WebSlingerBot" } : { message_id: 44 } });
@@ -137,7 +143,7 @@ for (const { input, expected, mention = "" } of rewrites) {
       assert.equal(response.status, 200);
       const replacements = calls.filter(call => call.method === "sendMessage");
       assert.equal(replacements.length, 1);
-      assert.ok(replacements[0].body.text.includes(expected));
+      assert.ok(replacements[0].body.entities.some(entity => entity.type === "text_link" && entity.url === expected));
       assert.equal(replacements[0].body.chat_id, message.chat.id);
       assert.equal(calls.at(-1).method, "deleteMessage");
       assert.deepEqual(calls.at(-1).body, { chat_id: message.chat.id, message_id: message.message_id });
@@ -171,7 +177,7 @@ for (const [name, block] of richContainers) {
   test(`rewrite a link in a rich-message ${name}`, async t => {
     const { calls } = await invoke(t, { rich_message: { blocks: [block] } });
     assert.deepEqual(calls.map(call => call.method), ["sendMessage", "deleteMessage"]);
-    assert.ok(calls[0].body.text.includes("https://fxtwitter.com/JeffJacksonNC/status/2094527969897169014"));
+    assert.ok(calls[0].body.entities.some(entity => entity.url === "https://fxtwitter.com/JeffJacksonNC/status/2094527969897169014"));
   });
 }
 
@@ -187,7 +193,7 @@ test("keep a rich link destination authoritative over a URL-shaped label", async
   const { calls } = await invoke(t, { rich_message: { blocks: [{
     type: "paragraph", text: { type: "url", text: "https://youtu.be/wrong @WebSlingerBot", url: `https://${bareTwitter}` },
   }] } });
-  assert.ok(calls.find(call => call.method === "sendMessage").body.text.includes("https://fxtwitter.com/JeffJacksonNC/status/2094527969897169014"));
+  assert.ok(calls.find(call => call.method === "sendMessage").body.entities.some(entity => entity.url === "https://fxtwitter.com/JeffJacksonNC/status/2094527969897169014"));
 });
 
 test("ignore non-HTTP rich destinations even when the label looks supported", async t => {

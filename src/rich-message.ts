@@ -25,7 +25,7 @@ interface RichBlock {
   credit?: RichText;
   caption?: RichText | RichCaption;
   blocks?: RichBlock[];
-  items?: { blocks: RichBlock[] }[];
+  items?: { label?: string; blocks: RichBlock[] }[];
   cells?: { text?: RichText }[][];
   buttons?: RichButton[];
 }
@@ -84,7 +84,10 @@ export function richMessageContent(message?: TelegramRichMessage): {
     field(value.summary);
     field(value.text);
     value.blocks?.forEach(block);
-    value.items?.forEach(item => item.blocks.forEach(block));
+    value.items?.forEach(item => {
+      if (item.label) text += `${item.label} `;
+      item.blocks.forEach(block);
+    });
     value.cells?.forEach(row => row.forEach(cell => field(cell.text)));
     value.buttons?.forEach(item => { button(item); text += "\n"; });
     const caption = value.caption;

@@ -104,6 +104,24 @@ Telegram's expanded editor can send `rich_message.blocks` with no `text` or
 lists, quotes, tables, button links, and media captions. The service rules above
 apply to all message formats.
 
+Replacements preserve the author's wording, line breaks, and link order, prefixed
+with `@username wrote: `. For example:
+
+```text
+alice: My take: x.com/jack/status/20 — thoughts?
+bot:   @alice wrote: My take: https://fxtwitter.com/jack/status/20 — thoughts?
+```
+
+All eligible links in the message are rewritten in one attributed copy. Named
+hyperlinks keep their labels and use the rewritten destinations. Rich messages
+are rendered as readable text and clickable links. A sender without a username
+is attributed by name with a Telegram user mention.
+
+Long replacements are split into ordered messages without truncation. The bot
+deletes the original only after every replacement part has been sent, and tries
+to remove partial output if sending a later part fails. Topic and reply context
+are retained.
+
 Run regression tests and type checking with:
 
 ```bash

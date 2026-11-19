@@ -1,5 +1,6 @@
 import { candidateUrls, type TelegramEntity } from "./urls";
 import { richMessageContent, type TelegramRichMessage } from "./rich-message";
+import { combineContent, rewriteContent, splitContent, type MessageContent } from "./replacement";
 
 interface Env {
   TELEGRAM_TOKEN: string;
@@ -11,18 +12,22 @@ interface Env {
 interface TelegramUser {
   id: number;
   first_name?: string;
+  is_bot?: boolean;
   username?: string;
 }
 
 interface TelegramMessage {
   message_id: number;
   chat: { id: number };
+  sender_chat?: { id: number; title?: string; username?: string };
   from?: TelegramUser;
   text?: string;
   entities?: TelegramEntity[];
   caption?: string;
   caption_entities?: TelegramEntity[];
   rich_message?: TelegramRichMessage;
+  message_thread_id?: number;
+  reply_to_message?: { message_id: number };
 }
 
 interface TelegramUpdate {
@@ -112,7 +117,7 @@ function youtubeVideoId(urls: URL[]): string | null {
 function senderLabel(user?: TelegramUser): string {
   if (user?.username) return `@${user.username}`;
   if (user?.first_name) return user.first_name;
-  return "there";
+  return "Someone";
 }
 
 function telegramApiUrl(token: string, method: string): string {
@@ -159,13 +164,31 @@ async function isBotMentioned(text: string, env: Env): Promise<boolean> {
 
 async function sendReplacementAndDelete(
   message: TelegramMessage,
-  replacementText: string,
+  replacement: MessageContent,
   env: Env,
 ): Promise<void> {
-  await telegramCall(env, "sendMessage", {
-    chat_id: message.chat.id,
-    text: replacementText,
-  });
+  const sentIds: number[] = [];
+  try {
+    for (const chunk of splitContent(replacement)) {
+      const sent = await telegramCall<{ message_id: number }>(env, "sendMessage", {
+        chat_id: message.chat.id,
+        text: chunk.text,
+        entities: chunk.entities,
+        ...(message.message_thread_id !== undefined ? { message_thread_id: message.message_thread_id } : {}),
+        ...(message.reply_to_message ? { reply_parameters: {
+          message_id: message.reply_to_message.message_id, allow_sending_without_reply: true,
+        } } : {}),
+      });
+      sentIds.push(sent.message_id);
+    }
+  } catch (error) {
+    // Preserve the original and remove partial output before Telegram retries.
+    for (const message_id of sentIds) {
+      try { await telegramCall(env, "deleteMessage", { chat_id: message.chat.id, message_id }); }
+      catch (cleanupError) { console.error("Could not remove a partial replacement", cleanupError); }
+    }
+    throw error;
+  }
 
   try {
     await telegramCall(env, "deleteMessage", {
@@ -182,47 +205,37 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   if (!message) return;
 
   const rich = richMessageContent(message.rich_message);
-  const text = [message.text, message.caption, rich.text].filter(Boolean).join("\n");
-  if (!text) return;
-
-  const urls = [
-    ...candidateUrls(message.text ?? "", message.entities),
-    ...candidateUrls(message.caption ?? "", message.caption_entities),
-    ...candidateUrls(rich.text, rich.entities),
-  ];
-  const videoId = youtubeVideoId(urls);
-  if (videoId && (await isBotMentioned(text, env))) {
-    const baseUrl = (env.INVIDIOUS_BASE_URL ?? "https://y.com.sb").replace(/\/$/, "");
-    const invidiousUrl = `${baseUrl}/watch?v=${encodeURIComponent(videoId)}`;
-    await sendReplacementAndDelete(
-      message,
-      `Here is an invidious url for ${senderLabel(message.from)}: ${invidiousUrl}`,
-      env,
-    );
-    return;
+  const content = combineContent([
+    { text: message.text ?? "", entities: message.entities ?? [] },
+    { text: message.caption ?? "", entities: message.caption_entities ?? [] },
+    { text: rich.text.replace(/\n$/, ""), entities: rich.entities },
+  ]);
+  const urls = candidateUrls(content.text, content.entities);
+  const mentioned = youtubeVideoId(urls) ? await isBotMentioned(content.text, env) : false;
+  const rewritten = rewriteContent(content, url => {
+    const videoId = mentioned ? youtubeVideoId([url]) : null;
+    if (videoId) {
+      const baseUrl = (env.INVIDIOUS_BASE_URL ?? "https://y.com.sb").replace(/\/$/, "");
+      return `${baseUrl}/watch?v=${encodeURIComponent(videoId)}`;
+    }
+    return fxTwitterUrl([url]) ?? instagramUrl([url], env.INSTAGRAM_BASE_URL ?? "https://oginstagram.com");
+  });
+  if (!rewritten.changed) return;
+  const label = message.sender_chat
+    ? (message.sender_chat.username ? `@${message.sender_chat.username}` : message.sender_chat.title ?? "Someone")
+    : senderLabel(message.from);
+  const prefix = `${label} wrote: `;
+  const replacement: MessageContent = {
+    text: prefix + rewritten.content.text,
+    entities: rewritten.content.entities.map(entity => ({ ...entity, offset: entity.offset + prefix.length })),
+  };
+  if (message.sender_chat?.username || (!message.sender_chat && message.from?.username)) {
+    replacement.entities.unshift({ type: "mention", offset: 0, length: label.length });
+  } else if (!message.sender_chat && message.from) {
+    replacement.entities.unshift({ type: "text_mention", offset: 0, length: label.length,
+      user: { id: message.from.id, is_bot: message.from.is_bot ?? false, first_name: message.from.first_name ?? label } });
   }
-
-  const fxUrl = fxTwitterUrl(urls);
-  if (fxUrl) {
-    await sendReplacementAndDelete(
-      message,
-      `Hi ${senderLabel(message.from)}, your Twitter/X link is ${fxUrl}.`,
-      env,
-    );
-    return;
-  }
-
-  const instagram = instagramUrl(
-    urls,
-    env.INSTAGRAM_BASE_URL ?? "https://oginstagram.com",
-  );
-  if (!instagram) return;
-
-  await sendReplacementAndDelete(
-    message,
-    `Hi ${senderLabel(message.from)}, your Instagram link is ${instagram}.`,
-    env,
-  );
+  await sendReplacementAndDelete(message, replacement, env);
 }
 
 export default {
