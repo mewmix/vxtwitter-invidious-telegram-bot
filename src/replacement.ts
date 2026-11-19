@@ -5,6 +5,20 @@ export interface MessageContent {
   entities: TelegramEntity[];
 }
 
+export function isLinkOnly(content: MessageContent): boolean {
+  let cursor = 0;
+  let found = false;
+  const links = content.entities.filter(entity => entity.type === "url" || entity.type === "text_link")
+    .sort((a, b) => a.offset - b.offset);
+  for (const link of links) {
+    if (link.offset < cursor) continue;
+    if (content.text.slice(cursor, link.offset).trim()) return false;
+    cursor = link.offset + link.length;
+    found = true;
+  }
+  return found && !content.text.slice(cursor).trim();
+}
+
 export function combineContent(parts: MessageContent[]): MessageContent {
   const result: MessageContent = { text: "", entities: [] };
   for (const part of parts) {

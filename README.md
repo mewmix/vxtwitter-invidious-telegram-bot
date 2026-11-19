@@ -105,9 +105,14 @@ lists, quotes, tables, button links, and media captions. The service rules above
 apply to all message formats.
 
 Replacements preserve the author's wording, line breaks, and link order, prefixed
-with `@username wrote: `. For example:
+with `@username sent: ` for links alone, or `@username wrote: ` when the message
+includes accompanying text. Whitespace between links does not count as commentary.
+For example:
 
 ```text
+alice: x.com/jack/status/20
+bot:   @alice sent: https://fxtwitter.com/jack/status/20
+
 alice: My take: x.com/jack/status/20 — thoughts?
 bot:   @alice wrote: My take: https://fxtwitter.com/jack/status/20 — thoughts?
 ```

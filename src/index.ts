@@ -1,6 +1,6 @@
 import { candidateUrls, type TelegramEntity } from "./urls";
 import { richMessageContent, type TelegramRichMessage } from "./rich-message";
-import { combineContent, rewriteContent, splitContent, type MessageContent } from "./replacement";
+import { combineContent, isLinkOnly, rewriteContent, splitContent, type MessageContent } from "./replacement";
 
 interface Env {
   TELEGRAM_TOKEN: string;
@@ -224,7 +224,7 @@ async function handleUpdate(update: TelegramUpdate, env: Env): Promise<void> {
   const label = message.sender_chat
     ? (message.sender_chat.username ? `@${message.sender_chat.username}` : message.sender_chat.title ?? "Someone")
     : senderLabel(message.from);
-  const prefix = `${label} wrote: `;
+  const prefix = `${label} ${isLinkOnly(rewritten.content) ? "sent" : "wrote"}: `;
   const replacement: MessageContent = {
     text: prefix + rewritten.content.text,
     entities: rewritten.content.entities.map(entity => ({ ...entity, offset: entity.offset + prefix.length })),

@@ -96,7 +96,7 @@ test("rewrite a shorthand URL-shaped rich label rather than leaving the old host
 
 test("preserve other hyperlinks when one supported link is rewritten", async t => {
   const { sent } = await invoke(t, { text: `Profile ${source} help`, entities: [{ type: "text_link", offset: 0, length: 7, url: "tg://user?id=123" }, { type: "text_link", offset: 29, length: 4, url: "https://example.com/help" }] });
-  assert.equal(sent[0].text, `@tester wrote: Profile ${target} help`);
+  assert.equal(sent[0].text, `@tester sent: Profile ${target} help`);
   assert.equal(sent[0].entities.find(entity => entity.url === "tg://user?id=123").length, 7);
   assert.equal(sent[0].text.slice(sent[0].entities.find(entity => entity.url === "https://example.com/help").offset), "help");
 });
@@ -143,12 +143,12 @@ test("mention the sender by ID when no username exists", async t => {
 
 test("handle messages with no sender details", async t => {
   const { sent } = await invoke(t, { from: undefined, text: source });
-  assert.equal(sent[0].text, `Someone wrote: ${target}`);
+  assert.equal(sent[0].text, `Someone sent: ${target}`);
 });
 
 test("attribute anonymous posts to the sender chat rather than the compatibility bot user", async t => {
   const { sent } = await invoke(t, { sender_chat: { id: -100123, title: "The group" }, from: { id: 44, username: "GroupAnonymousBot" }, text: source });
-  assert.equal(sent[0].text, `The group wrote: ${target}`);
+  assert.equal(sent[0].text, `The group sent: ${target}`);
   assert.equal(sent[0].entities.some(entity => entity.type === "text_mention" || entity.type === "mention"), false);
 });
 
@@ -157,6 +157,36 @@ test("include a clickable attribution for a username", async t => {
   const author = sent[0].entities.find(entity => entity.type === "mention");
   assert.equal(sent[0].text.slice(author.offset, author.offset + author.length), "@tester");
 });
+
+for (const [name, fields, expected] of [
+  ["shorthand URL", { text: source }, target],
+  ["HTTPS URL", { text: `https://${source}` }, target],
+  ["caption", { caption: source }, target],
+  ["URL entity", { text: source, entities: [{ type: "url", offset: 0, length: source.length }] }, target],
+  ["named hyperlink", { text: "Read this", entities: [{ type: "text_link", offset: 0, length: 9, url: `https://${source}` }] }, "Read this"],
+  ["rich plaintext", { rich_message: { blocks: [{ type: "paragraph", text: source }] } }, target],
+  ["rich URL", { rich_message: { blocks: [{ type: "paragraph", text: { type: "url", text: source, url: `https://${source}` } }] } }, target],
+  ["rich named hyperlink", { rich_message: { blocks: [{ type: "paragraph", text: { type: "url", text: "Read this", url: `https://${source}` } }] } }, "Read this"],
+  ["surrounding whitespace", { text: ` \n${source}\n ` }, ` \n${target}\n `],
+  ["multiple links", { text: `${source}\ninstagram.com/p/example/` }, `${target}\nhttps://oginstagram.com/p/example/`],
+]) {
+  test(`use sent for link-only ${name}`, async t => {
+    const { response, sent, calls } = await invoke(t, fields);
+    assert.equal(response.status, 200);
+    assert.equal(sent[0].text, `@tester sent: ${expected}`);
+    assert.ok(sent[0].entities.some(entity => entity.url === target));
+    assert.equal(calls.at(-1).method, "deleteMessage");
+  });
+}
+
+for (const format of ["text", "caption", "rich"]) {
+  test(`use wrote for commentary accompanying a link in ${format}`, async t => {
+    const text = `😀 ${source}`;
+    const fields = format === "rich" ? { rich_message: { blocks: [{ type: "paragraph", text }] } } : { [format]: text };
+    const { sent } = await invoke(t, fields);
+    assert.equal(sent[0].text, `@tester wrote: 😀 ${target}`);
+  });
+}
 
 test("keep replacement messages in the original topic and reply chain", async t => {
   const { sent } = await invoke(t, { text: source, message_thread_id: 77, reply_to_message: { message_id: 66 } });
